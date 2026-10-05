@@ -1,6 +1,15 @@
 use thirtyfour::prelude::*;
 use serde::{Serialize, Deserialize};
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Track {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_ms: u64
+}
+
 /// Resume playback
 pub async fn play(driver: &WebDriver) -> Result<(), String> {
     let script = "return MusicKit.getInstance().play();";
@@ -28,19 +37,6 @@ pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
-
-/// Play a specific song or playlist by ID (e.g. song ID "1440854481" or playlist "pl.xyz")
-pub async fn play_item(driver: &WebDriver, item_id: &str, is_playlist: bool) -> Result<(), String> {
-    let queue_type = if is_playlist { "playlist" } else { "song" };
-    let script = format!(
-        "return MusicKit.getInstance().setQueue({{ {}: '{}' }}).then(() => MusicKit.getInstance().play());",
-        queue_type, item_id
-    );
-    
-    driver.execute(&script, vec![]).await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PlaylistInfo {
     pub id: String,
@@ -50,21 +46,22 @@ pub struct PlaylistInfo {
 
 pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistInfo>, String> {
     let script = r#"
-        const mk = MusicKit.getInstance();
-        return mk.api.music('/v1/me/library/playlists', { limit: 100 })
-            .then(res => {
-                if (!res || !res.data || !res.data.data) return [];
-                return res.data.data.map(item => ({
+        return fetch('/v1/me/library/playlists?limit=100')
+            .then(res => res.json())
+            .then(data => {
+                if (!data || !data.data) return [];
+                return data.data.map(item => ({
                     id: item.id,
                     name: item.attributes.name || 'Untitled Playlist',
                     track_count: item.attributes.trackCount || 0
                 }));
-            });
+            })
+            .catch(err => []);
     "#;
 
     let res = driver.execute(script, vec![])
         .await
-        .map_err(|e| format!("Failed to fetch playlists: {}", e))?;
+        .map_err(|e| format!("Failed to fetch playlists via fetch: {}", e))?;
 
     let playlists: Vec<PlaylistInfo> = serde_json::from_value(res.json().clone())
         .map_err(|e| format!("Failed to parse playlist data: {}", e))?;
@@ -72,18 +69,11 @@ pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistIn
     Ok(playlists)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SearchHit {
-    pub id: String,
-    pub title: String,
-    pub artist: Option<String>,
-}
-
 pub async fn search_and_play(
     driver: &WebDriver, 
     query: &str, 
     is_playlist: bool
-) -> Result<SearchHit, String> {
+) -> Result<Track, String> {
     let item_type = if is_playlist { "playlists" } else { "songs" };
     let queue_key = if is_playlist { "playlist" } else { "song" };
 
@@ -129,24 +119,16 @@ pub async fn search_and_play(
         .await
         .map_err(|e| format!("Search & play failed: {}", e))?;
 
-    let hit: SearchHit = serde_json::from_value(res.json().clone())
+    let hit: Track = serde_json::from_value(res.json().clone())
         .map_err(|e| format!("Failed to parse search hit: {}", e))?;
 
     Ok(hit)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CurrentTrack {
-    pub id: String,
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub duration_ms: u64,
-    pub artwork_url: Option<String>,
-}
+
 
 /// Returns metadata for the currently playing item, or `Ok(None)` if nothing is queued/playing.
-pub async fn get_current_track(driver: &WebDriver) -> Result<Option<CurrentTrack>, String> {
+pub async fn get_current_track(driver: &WebDriver) -> Result<Option<Track>, String> {
     let script = r#"
         const mk = MusicKit.getInstance();
         if (!mk || !mk.nowPlayingItem) return null;
@@ -181,7 +163,7 @@ pub async fn get_current_track(driver: &WebDriver) -> Result<Option<CurrentTrack
         return Ok(None);
     }
 
-    let track: CurrentTrack = serde_json::from_value(value.clone())
+    let track: Track = serde_json::from_value(value.clone())
         .map_err(|e| format!("Failed to parse track metadata: {}", e))?;
 
     Ok(Some(track))

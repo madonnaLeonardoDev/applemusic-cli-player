@@ -1,32 +1,20 @@
 use std::fs::{self};
-use std::net::Shutdown;
-use std::io::{Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncWriteExt};
 use std::path::Path;
 use daemonize::Daemonize;
-use crate::paths::{SOCKET_PATH, PID_PATH};
+use crate::paths::{DAEMON_SOCKET_PATH, DAEMON_PID_PATH, GECKO_PID_PATH};
 use crate::handle_client::{handle_client};
 use crate::browser::{apple_music_auth, init_browser};
 
 
-fn print_to_main(msg: &str, stream: &mut UnixStream) -> Result<(), String> {
-    if let Err(e) = stream.write_all(msg.as_bytes()) {
-        return Err(format!("Error: Could not write to stream: {}", e))
-    }
-    Ok(())
-}
+pub fn start_daemon() -> Result<(), String> {
+//CHECK AND CLEANUP (SOCK + PID)    
 
-
-pub async  fn start_daemon() -> Result<(), String> {
-    // 1. Check for a stale PID file
-    if Path::new(PID_PATH.as_path()).exists() {
-        if let Ok(pid_str) = fs::read_to_string(PID_PATH.as_path()) {
+    if Path::new(DAEMON_PID_PATH.as_path()).exists() {
+        if let Ok(pid_str) = fs::read_to_string(DAEMON_PID_PATH.as_path()) {
             if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                // Check if a process with this PID is actually running (using a signal 0 check or similar)
-                // If it's dead, we can safely overwrite the stale files!
                 println!("Found existing PID file. Checking if process {} is alive...", pid);
-                
-                // On Unix, sending signal 0 checks if the process exists without harming it
+
                 let is_alive = unsafe { libc::kill(pid as i32, 0) == 0 };
                 
                 if is_alive {
@@ -37,17 +25,16 @@ pub async  fn start_daemon() -> Result<(), String> {
                 }
             }
         }
-        fs::remove_file(&*PID_PATH)
-        .map_err(|e| format!("Could not remove file at: {}, {}", &PID_PATH.display(), e))?;
+        fs::remove_file(&*DAEMON_PID_PATH)
+        .map_err(|e| format!("Could not remove file at: {}, {}", &DAEMON_PID_PATH.display(), e))?;
     }
 
-    // 2. Clean up stale socket file if it exists
-    if Path::new(SOCKET_PATH.as_path()).exists() {
-    fs::remove_file(SOCKET_PATH.as_path())
-    .map_err(|e| format!("Could not remove .sock file at: {}, {}", &SOCKET_PATH.display(), e))?;
+    if Path::new(DAEMON_SOCKET_PATH.as_path()).exists() {
+    fs::remove_file(DAEMON_SOCKET_PATH.as_path())
+    .map_err(|e| format!("Could not remove .sock file at: {}, {}", &DAEMON_SOCKET_PATH.display(), e))?;
     }
 
-    // 3. Write new PID and bind socket...
+//SETUP deamonize
 
     let stdout = fs::File::create("/tmp/applemusic_daemon.out")
         .map_err(|e| format!("Failed to create stdout log: {}", e))?;
@@ -56,12 +43,12 @@ pub async  fn start_daemon() -> Result<(), String> {
 
 
     let daemonize = Daemonize::new()
-        .pid_file(&*PID_PATH)
+        .pid_file(&*DAEMON_PID_PATH)
         .working_directory("/tmp")
         .stdout(stdout)
         .stderr(stderr);
 
-    println!("Starting applemusic-daemon...");
+    println!("Starting applemusic-daemon..."); 
 
     match daemonize.start() {
         Ok(_) => {
@@ -74,69 +61,92 @@ pub async  fn start_daemon() -> Result<(), String> {
         }
     }
     
-    if let Err(e) = apple_music_auth().await {
-                    println!("{}", e);
-                    return Err("Error, cant start apple music auth".to_string());
-    }
-    let state = init_browser(true).await?;
+// async tokio runtime
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("Failed to boot async runtime: {}", e))?;
 
-    let listener = UnixListener::bind(&*SOCKET_PATH)
-    .map_err(|e| format!("Error in binding socket lisener: {}", e))?;
-    
+    // Returning this block's Result directly fixes the "unused result" warning
+    // and correctly bubbles up startup/initialization errors.
+    rt.block_on(async {
+        // Auth check
+        if let Err(e) = apple_music_auth().await {
+            eprintln!("Auth error: {}", e);
+            return Err("Error, cant start apple music auth".to_string());
+        }
+        let state = init_browser(true).await?;
 
-    // ... listener loop ...
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                let response = match handle_client(&stream, &state) {
-                    Ok(msg ) => {
-                        msg
-                    },
-                    Err(e) => {
-                        format!("[ERROR] {}", e)
-                    }
-                };
-                
-                if let Err(e) = print_to_main(&response, &mut stream) {
-                        eprintln!("{}", e);
+        // Bind Tokio async Unix socket listener
+        let listener = tokio::net::UnixListener::bind(&*DAEMON_SOCKET_PATH)
+            .map_err(|e| format!("Error in binding socket listener: {}", e))?;
+
+        // 4. Async accept loop
+        loop {
+            match listener.accept().await {
+                Ok((mut stream, _)) => {
+                    let response = match handle_client(&mut stream, &state.driver).await {
+                        Ok(msg) => msg,
+                        Err(e) => e.to_string(),
+                    };
+
+                    // Write response asynchronously over the socket
+                    if let Err(e) = stream.write_all(response.as_bytes()).await {
+                        eprintln!("Error writing response: {}", e);
                         continue;
-                }
+                    }
 
-                if let Err(e) = stream.shutdown(Shutdown::Write) {
-                eprintln!("Error can't shutdown stream: {}", e);
-                continue;
+                    // Shutdown stream write-half asynchronously
+                    if let Err(e) = stream.shutdown().await {
+                        eprintln!("Error shutting down stream: {}", e);
+                        continue;
+                    }
                 }
-            },
-            Err(e) => {
-                eprint!("Connection failed: {}", e)
+                Err(e) => {
+                    eprintln!("Connection failed: {}", e);
+                }
             }
         }
-    }
-    Ok(())
+    })
 }
 
 
-pub fn kill_daemon() -> Result<String, String> {
+pub fn kill_all() -> Result<String, String> {
+    // Gracefully kill daemon if PID file exists
+    let _ = kill_pid(&*DAEMON_PID_PATH);
 
-    if !Path::new(&*PID_PATH).exists() {
-        return Ok("Daemon is not running (no PID file found).".to_string());
+    // Gracefully kill geckodriver if PID file exists
+    let _ = kill_pid(&*GECKO_PID_PATH);
+
+    // Safely remove Socket file only if it was actually created
+    if Path::new(&*DAEMON_SOCKET_PATH).exists() {
+        fs::remove_file(&*DAEMON_SOCKET_PATH)
+            .map_err(|e| format!("Could not remove socket file at: {}, {}", &DAEMON_SOCKET_PATH.display(), e))?;
     }
 
-    let pid = 
-    fs::read_to_string(&*PID_PATH)
-    .map_err(|e| format!("Could not read pid at: {}, {}", &PID_PATH.display(), e))?
-    .trim().parse::<i32>()
-    .map_err(|e| format!("Could not parse pid, {}", e))?;
+    Ok("All Processes killed successfully".to_string())
+}
 
+pub fn kill_pid(pid_path: &Path) -> Result<String, String> {
+    if !Path::new(pid_path).exists() {
+        // Return Ok instead of Err so it doesn't abort kill_all if a process wasn't started
+        return Ok(format!("{} is not running", pid_path.display()));
+    }
+
+    let pid_str = fs::read_to_string(pid_path)
+        .map_err(|e| format!("Could not read pid at: {}, {}", pid_path.display(), e))?;
+        
+    let pid = pid_str.trim().parse::<i32>()
+        .map_err(|e| format!("Could not parse pid, {}", e))?;
+
+    // Send SIGTERM to the process
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     };
 
-    fs::remove_file(&*PID_PATH)
-    .map_err(|e| format!("Could not remove PID file at: {}, {}",&PID_PATH.display(), e))?;
+    // Safely remove PID file if it exists
+    if Path::new(pid_path).exists() {
+        fs::remove_file(pid_path)
+            .map_err(|e| format!("Could not remove PID file at: {}, {}", pid_path.display(), e))?;
+    }
 
-    fs::remove_file(&*SOCKET_PATH)
-    .map_err(|e| format!("Could not remove socket file at: {}, {}", &SOCKET_PATH.display(), e))?;
-
-    Ok(format!("Daemon killed successfully PID: {}", pid))
+    Ok(format!("PID: {} killed successfully", pid_path.display()))
 }

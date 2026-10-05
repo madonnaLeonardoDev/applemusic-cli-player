@@ -3,8 +3,8 @@ use std::os::unix::net::UnixStream;
 use std::io::{Write, Read};
 use std::net::Shutdown;
 
-use crate::paths::{SOCKET_PATH};
-use crate::daemon::{kill_daemon, start_daemon};
+use crate::paths::{DAEMON_SOCKET_PATH};
+use crate::daemon::{kill_all, start_daemon};
 mod daemon;
 mod handle_client;
 mod paths;
@@ -12,8 +12,8 @@ mod browser;
 mod apple_music_navigation;
 mod daemon_controls;
 
-#[tokio::main]
-async fn main() {
+
+fn main() {
 
 
     let args: Vec<String> = env::args().skip(1).collect();
@@ -23,14 +23,14 @@ async fn main() {
         match command.as_str() {
                 "start" => {
 
-                    if let Err(e) = start_daemon().await {
-                        println!("{}", e);
+                    if let Err(e) = start_daemon() {
+                        eprintln!("{}", e);
                         return;
                     }
 
                 },
                 "stop" => {
-                    match kill_daemon() {
+                    match kill_all() {
                         Ok(msg) => println!("{}", msg),
                         Err(e) => {println!("{}", e)}
                     }
@@ -41,7 +41,7 @@ async fn main() {
                     let full_command = args.join(" ");
 
                     // Connect to the daemon's UNIX socket
-                    match UnixStream::connect(SOCKET_PATH.as_path()) {
+                    match UnixStream::connect(DAEMON_SOCKET_PATH.as_path()) {
                         Ok(mut stream) => {
                             if let Err(e) = stream.write_all(full_command.as_bytes()) {
                                 println!("Error writing to stream: {}", e);

@@ -9,10 +9,19 @@ pub static BROWSER_PROFILE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     .join(".config/applemusic-daemon/browser-profile")
 });
 
-pub static SOCKET_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+pub static DAEMON_SOCKET_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join("applemusic_daemon.sock")
 });
 
-pub static PID_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+pub static DAEMON_PID_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     std::env::temp_dir().join("applemusic_daemon.pid")
 });
+
+pub static GECKO_PID_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    std::env::temp_dir().join("applemusic_gecko.pid")
+});
+
+pub static BROWSER_PID_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    std::env::temp_dir().join("applemusic_browser.pid")
+});
+

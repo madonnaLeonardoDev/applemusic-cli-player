@@ -1,13 +1,15 @@
-use std::{io::{BufRead, BufReader}, os::unix::net::UnixStream};
+use thirtyfour::WebDriver;
+use tokio::net::UnixStream;
+use tokio::io::{AsyncBufReadExt,BufReader};
 
-use crate::browser::BrowserState;
+use crate::daemon_controls::*;
 
 
-pub fn handle_client(stream: &UnixStream, state: &BrowserState) -> Result<String, String> {
+pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Result<String, String> {
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
 
-    let bytes_read = reader.read_line(&mut line)
+    let bytes_read = reader.read_line(&mut line).await
     .map_err(|e| format!("Could not read stream: {}", e))?;
 
     if bytes_read <= 0 {
@@ -21,47 +23,54 @@ pub fn handle_client(stream: &UnixStream, state: &BrowserState) -> Result<String
 
 
 
-       match command {
+    let result: Option<String> =  match command {
         //CORE COMMANDS
-        "next" | "nx" => {
-
+        "next" => {
+            None
         },
-        "previous" | "pv" => {
-
+        "previous" => {
+            None
         },
-        "pause" | "p" => {
-
+        "play_pause" => {
+            None
         },
         //NAVIGATION COMMANDS
 
         "current" => {
-
+            None
         },
         "chplaylist" => {
-           let _ = check_args(line_args, 1)?;
-
+           let _ = check_args(&line_args, 1)?;
+           None
         },
         "lsplaylist" => {
-
+           Some(cmd_list_playlists(driver).await?)
         },
         "qnext" => {
-            let _ = check_args(line_args, 1)?;
+            let _ = check_args(&line_args, 1)?;
+            None
         },
         "playsong" => {
-            let _ = check_args(line_args, 1)?;
+            let _ = check_args(&line_args, 1)?;
+            None
         },
         _ => {
-           return Err(format!("{} is not a command", command))
+           None
         }
+    };
+
+    if result.is_none() {
+        return Ok(format!("{} is not a command", command));
     }
 
-    Ok(format!("{}",command))
+    Ok(result.unwrap())
+
 }
 
-fn check_args(args_vec: Vec<&str>, index: usize) -> Result<&str, String>{
+fn check_args(args_vec: &Vec<&str>, index: usize) -> Result<String, String>{
     
     if args_vec.get(index).is_none() {
         return Err("This command requires an argument".to_string());
     };
-    Ok(args_vec[index])
+    Ok(args_vec[index].to_string())
 }

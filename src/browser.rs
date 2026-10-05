@@ -1,29 +1,87 @@
 use thirtyfour::prelude::*;
-use std::time::Duration;
+use std::{path::Path, time::Duration, fs};
 use tokio::time::sleep;
 use std::process::{Command, Child, Stdio};
-use crate::paths::BROWSER_PROFILE_PATH;
-
-// We need to keep track of both the browser session and the driver server
+use crate::paths::{BROWSER_PROFILE_PATH, GECKO_PID_PATH, BROWSER_PID_PATH};
 pub struct BrowserState {
     pub driver: WebDriver,
     pub geckodriver_process: Child,
 }
 
 pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
-    // 1. Spawn geckodriver in the background so you don't have to run it manually
+    // 3. CLEAN UP STALE FIREFOX PROFILE LOCK
+    let lock_file = BROWSER_PROFILE_PATH.join("lock");
+    if lock_file.exists() {
+        if let Err(e) = fs::remove_file(&lock_file) {
+            eprintln!("Could not remove stale profile lock: {}", e);
+        } else {
+            println!("Removed stale Firefox profile lock.");
+        }
+    }
+
+    // 1. CLEAN UP STALE GECKO
+    if Path::new(&*GECKO_PID_PATH).exists() {
+        if let Ok(pid_str) = fs::read_to_string(&*GECKO_PID_PATH) {
+            match pid_str.trim().parse::<i32>() {
+                Ok(pid) => {
+                    unsafe { libc::kill(pid, libc::SIGTERM); }
+                }
+                Err(_) => {
+                    eprintln!("Failed Parsing GECKO_DRIVER pid");
+                }
+            }
+        }
+
+        if let Err(e) = fs::remove_file(&*GECKO_PID_PATH) {
+            eprintln!("Could not remove stale GECKO_DRIVER pid: {}", e);
+        }
+    }
+
+    // 2. CLEAN UP STALE BROWSER (if tracked)
+    if Path::new(&*BROWSER_PID_PATH).exists() {
+        if let Ok(pid_str) = fs::read_to_string(&*BROWSER_PID_PATH) {
+            match pid_str.trim().parse::<i32>() {
+                Ok(pid) => {
+                    unsafe { libc::kill(pid, libc::SIGTERM); }
+                }
+                Err(_) => {
+                    eprintln!("Failed Parsing BROWSER pid");
+                }
+            }
+        }
+
+        if let Err(e) = fs::remove_file(&*BROWSER_PID_PATH) {
+            eprintln!("Could not remove stale BROWSER pid: {}", e);
+        }
+    }
+
+    // 3. GET DYNAMIC PORT
+    let temp_listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("Failed to find a free port: {}", e))?;
+    
+    let dynamic_port = temp_listener.local_addr()
+        .map_err(|e| format!("Failed to read local port address: {}", e))?
+        .port();
+    drop(temp_listener);
+
+    // 4. Spawn geckodriver in the background
     let geckodriver_process = Command::new("geckodriver")
         .arg("--port")
-        .arg("4444")
-        .stdout(Stdio::null()) // Mute standard output
-        .stderr(Stdio::null()) // Mute error output (the javascript warnings)
+        .arg(dynamic_port.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to start geckodriver: {}", e))?;
 
-    // Give geckodriver half a second to bind to port 4444
+    // CRITICAL FIX: Write the new geckodriver PID to disk so cleanup can find it next time!
+    let child_pid = geckodriver_process.id();
+    if let Err(e) = fs::write(&*GECKO_PID_PATH, child_pid.to_string()) {
+        eprintln!("Failed to write gecko PID file: {}", e);
+    }
+
     sleep(Duration::from_millis(500)).await;
 
-    // 2. Configure Firefox capabilities
+    // 5. Configure Firefox capabilities with persistent profile path
     let mut caps = DesiredCapabilities::firefox();
     
     if is_headless {
@@ -35,10 +93,10 @@ pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
     caps.add_arg("-profile").map_err(|e| e.to_string())?;
     caps.add_arg(profile_path).map_err(|e| e.to_string())?;
 
-    // 3. Connect thirtyfour to the running geckodriver instance
-    let driver = WebDriver::new("http://localhost:4444", caps)
+    // 6. Connect thirtyfour to the running geckodriver instance
+    let driver = WebDriver::new(format!("http://127.0.0.1:{}", dynamic_port), caps)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Error connecting WebDriver to port {}: {}", dynamic_port, e))?;
 
     Ok(BrowserState { driver, geckodriver_process })
 }
@@ -51,6 +109,13 @@ pub async fn open_apple_music(driver: &WebDriver) -> Result<(), String> {
 
     Ok(())
 }
+
+
+
+
+
+
+
 
 pub async fn is_logged_in(driver: &WebDriver) -> Result<bool, String> {
     // Notice the "return" keyword! thirtyfour executes scripts differently.
