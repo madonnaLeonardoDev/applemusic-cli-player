@@ -4,7 +4,7 @@ use std::path::Path;
 use daemonize::Daemonize;
 use crate::paths::{DAEMON_SOCKET_PATH, DAEMON_PID_PATH, GECKO_PID_PATH};
 use crate::handle_client::{handle_client};
-use crate::browser::{apple_music_auth, init_browser};
+use crate::browser::{apple_music_auth, init_browser, open_apple_music};
 
 
 pub fn start_daemon() -> Result<(), String> {
@@ -50,15 +50,8 @@ pub fn start_daemon() -> Result<(), String> {
 
     println!("Starting applemusic-daemon..."); 
 
-    match daemonize.start() {
-        Ok(_) => {
-            let pid = std::process::id();
-            println!("Daemon started successfully (PID {}).", pid);
-        },
-        Err(e) => {
-            return Err(format!("Error in starting daemon: {}", e))
-            
-        }
+    if let Err(e) = daemonize.start() {
+        return Err(format!("Error in starting daemon: {}", e));
     }
     
 // async tokio runtime
@@ -69,42 +62,47 @@ pub fn start_daemon() -> Result<(), String> {
     // and correctly bubbles up startup/initialization errors.
     rt.block_on(async {
         // Auth check
-        if let Err(e) = apple_music_auth().await {
-            eprintln!("Auth error: {}", e);
-            return Err("Error, cant start apple music auth".to_string());
-        }
-        let state = init_browser(true).await?;
-
-        // Bind Tokio async Unix socket listener
-        let listener = tokio::net::UnixListener::bind(&*DAEMON_SOCKET_PATH)
-            .map_err(|e| format!("Error in binding socket listener: {}", e))?;
-
-        // 4. Async accept loop
-        loop {
-            match listener.accept().await {
-                Ok((mut stream, _)) => {
-                    let response = match handle_client(&mut stream, &state.driver).await {
-                        Ok(msg) => msg,
-                        Err(e) => e.to_string(),
-                    };
-
-                    // Write response asynchronously over the socket
-                    if let Err(e) = stream.write_all(response.as_bytes()).await {
-                        eprintln!("Error writing response: {}", e);
-                        continue;
+        match apple_music_auth().await {
+            Err(e) => {
+                eprintln!("Auth error: {}", e);
+                return Err("Error, cant start apple music auth".to_string());
+            },
+            Ok(_) => {
+                let state = init_browser(true).await?;
+                open_apple_music(&state.driver).await?;
+                // Bind Tokio async Unix socket listener
+                let listener = tokio::net::UnixListener::bind(&*DAEMON_SOCKET_PATH)
+                    .map_err(|e| format!("Error in binding socket listener: {}", e))?;
+                    
+                // 4. Async accept loop
+                loop {
+                    match listener.accept().await {
+                        Ok((mut stream, _)) => {
+                            let response = match handle_client(&mut stream, &state.driver).await {
+                                Ok(msg) => msg,
+                                Err(e) => e.to_string(),
+                            };
+                        
+                            // Write response asynchronously over the socket
+                            if let Err(e) = stream.write_all(response.as_bytes()).await {
+                                eprintln!("Error writing response: {}", e);
+                                continue;
+                            }
+                        
+                            // Shutdown stream write-half asynchronously
+                            if let Err(e) = stream.shutdown().await {
+                                eprintln!("Error shutting down stream: {}", e);
+                                continue;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Connection failed: {}", e);
+                        }
                     }
-
-                    // Shutdown stream write-half asynchronously
-                    if let Err(e) = stream.shutdown().await {
-                        eprintln!("Error shutting down stream: {}", e);
-                        continue;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Connection failed: {}", e);
-                }
+                }                
             }
         }
+
     })
 }
 

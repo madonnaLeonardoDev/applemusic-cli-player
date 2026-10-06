@@ -1,5 +1,6 @@
 use thirtyfour::prelude::*;
 use serde::{Serialize, Deserialize};
+use serde_json::{Value};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Track {
@@ -12,28 +13,28 @@ pub struct Track {
 
 /// Resume playback
 pub async fn play(driver: &WebDriver) -> Result<(), String> {
-    let script = "return MusicKit.getInstance().play();";
+    let script = "MusicKit.getInstance().play();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// Pause playback
 pub async fn pause(driver: &WebDriver) -> Result<(), String> {
-    let script = "return MusicKit.getInstance().pause();";
+    let script = "MusicKit.getInstance().pause();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// Skip to next track
 pub async fn next_track(driver: &WebDriver) -> Result<(), String> {
-    let script = "return MusicKit.getInstance().skipToNextItem();";
+    let script = "MusicKit.getInstance().skipToNextItem();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// Skip to previous track
 pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
-    let script = "return MusicKit.getInstance().skipToPreviousItem();";
+    let script = "MusicKit.getInstance().skipToPreviousItem();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -41,32 +42,48 @@ pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
 pub struct PlaylistInfo {
     pub id: String,
     pub name: String,
-    pub track_count: usize,
+    pub desc: String
 }
 
 pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistInfo>, String> {
     let script = r#"
-        return fetch('/v1/me/library/playlists?limit=100')
-            .then(res => res.json())
-            .then(data => {
-                if (!data || !data.data) return [];
-                return data.data.map(item => ({
-                    id: item.id,
-                    name: item.attributes.name || 'Untitled Playlist',
-                    track_count: item.attributes.trackCount || 0
+        return (async () => {
+            try {
+                const mk = MusicKit.getInstance();
+                if (!mk || !mk.isAuthorized) {
+                    await mk?.authorize();
+                }
+
+                const response = await mk.api.music('v1/me/library/playlists', { limit: 100 });
+                const rawItems = response?.data?.data || [];
+
+                // 2. Return the FLATTENED mapped array, NOT 'rawItems'
+                return rawItems.map(p => ({
+                    id: p.id,
+                    name: p.attributes?.name || "Untitled Playlist",
+                    desc: p.attributes?.description?.standard || "",
                 }));
-            })
-            .catch(err => []);
+            } catch (err) {
+                console.error("MusicKit error:", err);
+                return [];
+            }
+        })();
     "#;
 
-    let res = driver.execute(script, vec![])
+    let res = driver
+        .execute(script, vec![])
         .await
-        .map_err(|e| format!("Failed to fetch playlists via fetch: {}", e))?;
+        .map_err(|e| format!("WebDriver script execution failed: {}", e))?;
 
-    let playlists: Vec<PlaylistInfo> = serde_json::from_value(res.json().clone())
-        .map_err(|e| format!("Failed to parse playlist data: {}", e))?;
+    let json_val = res.json();
 
-    Ok(playlists)
+    // 3. Explicit error reporting instead of silent fallback
+    serde_json::from_value::<Vec<PlaylistInfo>>(json_val.clone()).map_err(|e| {
+        format!(
+            "Deserialization failed for JSON `{}`: {}",
+            json_val, e
+        )
+    })
 }
 
 pub async fn search_and_play(

@@ -83,12 +83,9 @@ pub async fn cmd_current_track(driver:&WebDriver) -> Result<String, String> {
 pub async fn cmd_list_playlists(driver:&WebDriver) -> Result<String, String> {
     match list_library_playlists(driver).await {
     Ok(pl) => {
-        if pl.is_empty() {
-            return Ok("No PLaylists Found".to_string())
-        }
         let result: String = pl
         .iter()
-        .map(|pl| format!("{}, ({} Tracks) ", pl.name, pl.track_count))
+        .map(|pl| format!("-{}\n\r{}", pl.name, pl.desc))
         .collect();
         Ok(result)
     },

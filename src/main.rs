@@ -14,8 +14,6 @@ mod daemon_controls;
 
 
 fn main() {
-
-
     let args: Vec<String> = env::args().skip(1).collect();
 
     if let Some(command) = args.get(0) {

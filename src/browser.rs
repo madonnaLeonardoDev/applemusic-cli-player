@@ -10,7 +10,7 @@ pub struct BrowserState {
 
 pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
     // 3. CLEAN UP STALE FIREFOX PROFILE LOCK
-    let lock_file = BROWSER_PROFILE_PATH.join("lock");
+    let lock_file = BROWSER_PROFILE_PATH.join("/lock");
     if lock_file.exists() {
         if let Err(e) = fs::remove_file(&lock_file) {
             eprintln!("Could not remove stale profile lock: {}", e);
@@ -88,11 +88,21 @@ pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
         caps.set_headless().map_err(|e| e.to_string())?;
     }
     
+    
     // Convert BROWSER_PROFILE_PATH to a string and pass it to Firefox arguments
-    let profile_path = BROWSER_PROFILE_PATH.to_str().unwrap_or("/tmp/apple-music-profile");
-    caps.add_arg("-profile").map_err(|e| e.to_string())?;
-    caps.add_arg(profile_path).map_err(|e| e.to_string())?;
+    if let Some(profile_path) = BROWSER_PROFILE_PATH.to_str() {
+    // 1. Resolve to a absolute path (Geckodriver crashes without this)
+    let abs_path = std::fs::canonicalize(profile_path)
+        .map_err(|e| format!("Failed to canonicalize path: {}", e))?
+        .to_string_lossy()
+        .to_string();
 
+    // 2. Pass --profile (DOUBLE DASH) and the absolute path
+    caps.add_arg("-profile").map_err(|e| e.to_string())?;
+    caps.add_arg(&abs_path).map_err(|e| e.to_string())?;
+    } else {
+        return Err("Profile path returned None".to_string());
+    }
     // 6. Connect thirtyfour to the running geckodriver instance
     let driver = WebDriver::new(format!("http://127.0.0.1:{}", dynamic_port), caps)
         .await
@@ -102,7 +112,6 @@ pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
 }
 
 pub async fn open_apple_music(driver: &WebDriver) -> Result<(), String> {
-    // thirtyfour's goto() implicitly waits for the page load to finish
     driver.goto("https://music.apple.com")
         .await
         .map_err(|e| e.to_string())?;
