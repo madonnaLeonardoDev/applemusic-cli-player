@@ -1,42 +1,13 @@
 use thirtyfour::prelude::*;
 use serde::{Serialize, Deserialize};
-use serde_json::{Value};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Track {
-    pub id: String,
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-    pub duration_ms: u64
-}
-
-/// Resume playback
-pub async fn play(driver: &WebDriver) -> Result<(), String> {
-    let script = "MusicKit.getInstance().play();";
-    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Pause playback
-pub async fn pause(driver: &WebDriver) -> Result<(), String> {
-    let script = "MusicKit.getInstance().pause();";
-    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Skip to next track
-pub async fn next_track(driver: &WebDriver) -> Result<(), String> {
-    let script = "MusicKit.getInstance().skipToNextItem();";
-    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Skip to previous track
-pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
-    let script = "MusicKit.getInstance().skipToPreviousItem();";
-    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
-    Ok(())
+    pub id: Option<String>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_ms: Option<u64>
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PlaylistInfo {
@@ -45,6 +16,89 @@ pub struct PlaylistInfo {
     pub desc: String
 }
 
+//Should work not tested
+///get id
+pub async fn get_id(driver: &WebDriver, query: String, query_type: String) -> Result<String, String> {
+    let script = format!(r#"
+    (async () => {{
+    const mk = MusicKit.getInstance();
+    const results = await mk.api.music(`v1/me/storefront`, {{}}); // Optional: get storefront dynamically
+    const searchResponse = await mk.api.music('v1/catalog/us/search', {{
+        term: '{}',
+        types: '{}',
+        limit: 1
+}});
+    const firstSong = searchResponse?.data?.results?.songs?.data?.[0];
+    const firstId = firstSong ? firstSong.id : null;
+
+    console.log("First result ID:", firstId);
+}})(); "#, query, query_type);
+    let res = driver.execute(script, vec![]).await
+        .map_err(|e| e.to_string())?;
+
+    let id_str: String = serde_json::from_value(res.json().clone())
+        .map_err(|e| e.to_string())?;
+
+    Ok(id_str)
+}
+
+//Should work not tested
+/// Resume playback
+pub async fn play(driver: &WebDriver) -> Result<(), String> {
+    let script = "MusicKit.getInstance().play();";
+    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+//Should work not tested
+/// Pause playback
+pub async fn pause(driver: &WebDriver) -> Result<(), String> {
+    let script = "MusicKit.getInstance().pause();";
+    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+//Should work not tested
+/// Skip to next track
+pub async fn next_track(driver: &WebDriver) -> Result<(), String> {
+    let script = "MusicKit.getInstance().skipToNextItem();";
+    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+
+//Should work not tested
+/// Skip to previous track
+pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
+    let script = "MusicKit.getInstance().skipToPreviousItem();";
+    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+//Should work not tested
+pub async fn shuffle_toggle(driver: &WebDriver) -> Result<(), String> {
+    let script = r#"
+        return window.MusicKit.getInstance().shuffleMode;
+    "#;
+
+    let value = driver.execute(script, vec![]).await
+        .map_err(|e| format!("Failed to execute script: {}", e))?;
+
+    // Convert the serde_json::Value to a Rust boolean
+    let is_shuffled: i64 = value.json().as_i64().unwrap_or(0);
+
+    let num_mode = if is_shuffled == 1 {
+        0
+    } else {
+        1
+    };
+
+    let script = format!{"MusicKit.getInstance().shuffleMode = {};", num_mode};
+    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+//WORKING TESTED
 pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistInfo>, String> {
     let script = r#"
         return (async () => {
@@ -86,102 +140,49 @@ pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistIn
     })
 }
 
-pub async fn search_and_play(
-    driver: &WebDriver, 
-    query: &str, 
-    is_playlist: bool
-) -> Result<Track, String> {
-    let item_type = if is_playlist { "playlists" } else { "songs" };
-    let queue_key = if is_playlist { "playlist" } else { "song" };
-
-    // Escape single quotes in user input to prevent JS injection breaking the string
-    let safe_query = query.replace('\'', "\\'");
-
-    let script = format!(
-        r#"
-        const mk = MusicKit.getInstance();
-        const itemType = '{item_type}';
-        const queueKey = '{queue_key}';
-        
-        return mk.api.music('/v1/catalog/' + mk.storefrontId + '/search', {{
-            term: '{safe_query}',
-            types: itemType,
-            limit: 1
-        }}).then(res => {{
-            const results = res.data.results[itemType];
-            if (!results || !results.data || results.data.length === 0) {{
-                throw new Error('No ' + itemType + ' found matching query: {safe_query}');
-            }}
-            
-            const topHit = results.data[0];
-            const hitId = topHit.id;
-            const hitTitle = topHit.attributes.name;
-            const hitArtist = topHit.attributes.artistName || null;
-
-            return mk.setQueue({{ [queueKey]: hitId }})
-                .then(() => mk.play())
-                .then(() => ({{
-                    id: hitId,
-                    title: hitTitle,
-                    artist: hitArtist
-                }}));
-        }});
-        "#,
-        item_type = item_type,
-        queue_key = queue_key,
-        safe_query = safe_query
-    );
-
-    let res = driver.execute(&script, vec![])
-        .await
-        .map_err(|e| format!("Search & play failed: {}", e))?;
-
-    let hit: Track = serde_json::from_value(res.json().clone())
-        .map_err(|e| format!("Failed to parse search hit: {}", e))?;
-
-    Ok(hit)
-}
-
-
-
+//Should work not tested
 /// Returns metadata for the currently playing item, or `Ok(None)` if nothing is queued/playing.
 pub async fn get_current_track(driver: &WebDriver) -> Result<Option<Track>, String> {
     let script = r#"
-        const mk = MusicKit.getInstance();
-        if (!mk || !mk.nowPlayingItem) return null;
+return (() => {
+    let title = null;
+    let artist = null;
+    let album = null;
+    let id = null;
+    let duration = null;
 
-        const item = mk.nowPlayingItem;
-        const attr = item.attributes || {};
+    if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
+        title = navigator.mediaSession.metadata.title || title;
+        artist = navigator.mediaSession.metadata.artist || artist;
+        album = navigator.mediaSession.metadata.album || album;
+    }
 
-        let artworkUrl = null;
-        if (attr.artwork && attr.artwork.url) {
-            // Replace dimensions placeholders with 300x300
-            artworkUrl = attr.artwork.url.replace('{w}', '300').replace('{h}', '300');
+    const songLink = document.querySelector('footer a[href*="/song/"], [data-testid="player-controls"] a[href*="/song/"]');
+    if (songLink) {
+        const match = songLink.href.match(/\/song\/([^\/?#]+)/);
+        if (match) {
+            id = match[1];
         }
+    }
 
-        return {
-            id: item.id || '',
-            title: attr.name || item.title || 'Unknown Title',
-            artist: attr.artistName || item.artistName || 'Unknown Artist',
-            album: attr.albumName || item.albumName || 'Unknown Album',
-            duration_ms: attr.durationInMillis || 0,
-            artwork_url: artworkUrl
-        };
+    const audioEl = document.querySelector('audio');
+    if (audioEl && !isNaN(audioEl.duration)) {
+        duration = Math.round(audioEl.duration * 1000); // Converted to milliseconds
+    }
+
+    return { id, title, artist, album, duration };
+})();
     "#;
 
-    let eval_result = driver.execute(script, vec![])
+    let res = driver.execute(script, vec![])
         .await
         .map_err(|e| e.to_string())?;
 
-    let value = eval_result.json();
-    
-    // If no song is loaded in the player, return None
-    if value.is_null() {
-        return Ok(None);
+    let track_obj: Track = serde_json::from_value(res.json().clone())
+        .map_err(|e| e.to_string())?;
+
+    if track_obj.title.is_none() {
+        return Ok(None)
     }
-
-    let track: Track = serde_json::from_value(value.clone())
-        .map_err(|e| format!("Failed to parse track metadata: {}", e))?;
-
-    Ok(Some(track))
+    Ok(Some(track_obj))
 }

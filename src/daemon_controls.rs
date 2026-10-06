@@ -1,12 +1,10 @@
-use libc::ERA;
 use thirtyfour::WebDriver;
-use crate::apple_music_navigation::{
-    Track, get_current_track, list_library_playlists, next_track, pause, play, previous_track, search_and_play};
+use crate::apple_music_navigation::*;
 
 fn format_time(time_ms: u64) -> String {
     let tot_secs = time_ms / 1000;
     let seconds = tot_secs % 60;
-    let minutes = (tot_secs / 60);
+    let minutes = tot_secs / 60;
     let hours = tot_secs / 3600;
 
     if hours > 0 {
@@ -66,12 +64,31 @@ pub async fn cmd_prev(driver:&WebDriver) -> Result<String, String> {
 pub async fn cmd_current_track(driver:&WebDriver) -> Result<String, String> {
 
     if let Some(track) = get_current_track(driver).await? {
-        let title = track.title;
-        let artist = track.artist;
-        let album = track.album;
-        let duration = format_time(track.duration_ms);
+        let title:String = if track.title.is_none(){
+            "Unkown Title".to_string()
+        } else {
+            track.title.unwrap()
+        };
+        let artist: String = if track.artist.is_none() {
+            "Unkown Artist".to_string()
+        } else {
+            track.artist.unwrap()
+        };
+
+
+        let album: String = if track.album.is_none(){
+            "Unkown Album".to_string()
+        } else {
+            track.album.unwrap()
+        };
+
+        let duration: String = if track.duration_ms.is_none() {
+            "Unkown Duration".to_string()
+        } else {
+            format_time(track.duration_ms.unwrap())
+        };
         return Ok(format!(
-            "Track Playing:\n\r{}\n\r{}, {} ({})",
+            "Track Playing:\n\r{}\n\r{} | {} ({})",
             title, artist, album, duration 
         ))
     }
