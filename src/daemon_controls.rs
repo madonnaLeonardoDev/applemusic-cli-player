@@ -1,7 +1,7 @@
-use thirtyfour::WebDriver;
+use thirtyfour::{WebDriver};
 use crate::apple_music_navigation::*;
 
-fn format_time(time_ms: u64) -> String {
+fn format_time(time_ms: u32) -> String {
     let tot_secs = time_ms / 1000;
     let seconds = tot_secs % 60;
     let minutes = tot_secs / 60;
@@ -16,6 +16,74 @@ fn format_time(time_ms: u64) -> String {
     }
 }
 
+//ADDED
+pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType, is_library: bool, queue: bool, insta_play: bool) -> Result<String, String> {
+    let search_res = search(driver, query, search_type,is_library).await?;
+
+    let result_tuple:(String, String) = match search_res {
+        SearchResult::Track(track) => {
+            let id = if track.id.is_none(){
+                return  Ok("No matches found".to_string());
+                } else {
+                    track.id.unwrap()
+                };
+            
+            let time = if track.duration_ms.is_none(){
+                "Unkown Duration".to_string()
+            } else {
+                format_time(track.duration_ms.unwrap())
+            };
+            
+            (format!("{} - (id:{})\n{} | {} | {}", track.title.unwrap_or("Unkown title".to_string()),id ,track.artist.unwrap_or("Unkown Artist".to_string()), track.album.unwrap_or("Unkown Album".to_string()), time), id)
+    },
+    SearchResult::Playlist(playlist) => {
+        let id = if playlist.id.is_none() {
+            return Ok("No Matches found".to_string());
+        } else {
+            playlist.id.unwrap()
+        };
+
+        (format!("{} - (id:{})\n{}", playlist.name.unwrap_or("Unkown Name".to_string()), id, playlist.desc.unwrap_or("".to_string())), id)
+    },
+    SearchResult::Album(album) => {
+        let id = if album.id.is_none() {
+            return Ok("No Matches Found".to_string());
+        } else {
+            album.id.unwrap()
+        };
+
+        let track_count = if album.track_count.is_none() {
+            "".to_string()
+        } else {
+            format!("Tracks: {}",album.track_count.unwrap())
+        };
+
+        (format!("{} - (id:{})\n {} | Tracks:{}", album.name.unwrap_or("Unkown Name".to_string()), id, album.artist.unwrap_or("Unkown Artist".to_string()), track_count), id)
+
+    }
+
+    };
+    if queue{
+                play_next(driver, search_type, result_tuple.1).await?;
+                if insta_play {
+                    next_track(driver).await?;
+                    return Ok(format!("Now Playing:\n{}", result_tuple.0))
+                }
+                return Ok(format!("Playing Next:\n{}", result_tuple.0))
+            }
+    Ok(result_tuple.0)
+}
+
+pub async fn cmd_play_by_id(driver:&WebDriver, id:String, item_type: ItemType, insta_play: bool) -> Result<String, String> {
+    let id = play_next(driver, &item_type, id).await
+    .map_err(|e| e.to_string())?;
+
+    if insta_play {
+        next_track(driver).await?;
+        return Ok(format!("Playing Now: {}",id));
+    }
+    Ok(format!("Playing Next: {}",id))
+}
 
 pub async fn cmd_play_pause(driver:&WebDriver) -> Result<String, String> {
     let script = r#"
@@ -52,6 +120,7 @@ pub async fn cmd_next(driver:&WebDriver) -> Result<String, String> {
 
     Ok("Next Track".to_string())
 }
+
 
 pub async fn cmd_prev(driver:&WebDriver) -> Result<String, String> {
     if let Err(e) = previous_track(driver).await {
@@ -102,10 +171,20 @@ pub async fn cmd_list_playlists(driver:&WebDriver) -> Result<String, String> {
     Ok(pl) => {
         let result: String = pl
         .iter()
-        .map(|pl| format!("-{}\n\r{}", pl.name, pl.desc))
+        .map(|pl| pl.pretty_display())
         .collect();
         Ok(result)
     },
     Err(e) => return Err(e)
     }
+}
+
+pub async fn cmd_toggle_shuffle(driver:&WebDriver) -> Result<String, String> {
+    let mode = shuffle_toggle(driver).await
+        .map_err(|e| e.to_string())?;
+
+    if mode == 1{
+        return Ok("Shuffling On".to_string());
+    }
+    Ok("Shuffling Off".to_string())
 }

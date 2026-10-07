@@ -7,40 +7,224 @@ pub struct Track {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
-    pub duration_ms: Option<u64>
+    pub duration_ms: Option<u32>
 }
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PlaylistInfo {
-    pub id: String,
-    pub name: String,
-    pub desc: String
+pub struct Playlist {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub desc: Option<String>
 }
+
+impl Playlist {
+    pub fn pretty_display(&self) -> String {
+        format!("{} - (id: {})\n{}", self.name.clone().unwrap_or("Unkown Name".to_string()), self.id.clone().unwrap_or("Unkown ID".to_string()), self.desc.clone().unwrap_or("".to_string()))
+    }
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Album {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub artist: Option<String>,
+    pub track_count: Option<u32>,
+}
+
+pub enum ItemType {
+    Song,
+    Playlist,
+    Album
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum SearchResult {
+    Track(Track),
+    Album(Album),
+    Playlist(Playlist)
+}
+
+
+impl ItemType {
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            ItemType::Album => "albums",
+            ItemType::Playlist => "playlists",
+            ItemType::Song => "songs"
+        }
+    }
+}
+
+pub async fn play_next(driver: &WebDriver, item_type: &ItemType, id: String) -> Result<String, String> {
+    let script = format!(r#"
+    return (async () => {{
+        const mk = MusicKit.getInstance();
+        if (!mk || !mk.isAuthorized ) {{
+        await mk?.authorize();
+    }}
+    try {{ 
+    await mk.playNext({{ {}: '{}'}});
+    return true;
+    }}
+    catch (e) {{
+        return false;
+    }}
+}})()
+"#, item_type.as_str(), id);
+
+let res = driver.execute(script, vec![]).await
+    .map_err(|e| e.to_string())?;
+
+
+let is_success: bool = serde_json::from_value(res.json().clone())
+    .map_err(|e| e.to_string())?;
+
+if is_success {
+    return Ok(id)
+}
+
+Ok("Could Not play next, maybe wrong id".to_string())
+    
+}
+
 
 //Should work not tested
 ///get id
-pub async fn get_id(driver: &WebDriver, query: String, query_type: String) -> Result<String, String> {
-    let script = format!(r#"
-    (async () => {{
-    const mk = MusicKit.getInstance();
-    const results = await mk.api.music(`v1/me/storefront`, {{}}); // Optional: get storefront dynamically
-    const searchResponse = await mk.api.music('v1/catalog/us/search', {{
-        term: '{}',
-        types: '{}',
-        limit: 1
-}});
-    const firstSong = searchResponse?.data?.results?.songs?.data?.[0];
-    const firstId = firstSong ? firstSong.id : null;
+pub async fn search(driver: &WebDriver, query: String, item_type: &ItemType, is_library: bool) -> Result<SearchResult, String> {
+    let script: String = if is_library {
+        format!(
+        r#"
+        return (async () => {{
+                const mk = MusicKit.getInstance();
+                if (!mk || !mk.isAuthorized) {{
+                    await mk?.authorize();
+                }}
 
-    console.log("First result ID:", firstId);
-}})(); "#, query, query_type);
+                const searchResponse = await mk.api.music(`v1/me/library/search`, {{
+                    term: "{}",
+                    types: "library-{}",
+                    limit: 1
+                }});
+
+                const data = searchResponse?.data?.results?.{}?.data?.[0];
+                if (!data) {{
+                    return null;
+                }}
+
+
+                if ("{}" === "songs") {{
+                    return {{
+                        type: "Track",
+                        id: data.id || null,
+                        title: attr.name || null,
+                        artist: attr.artistName || null,
+                        album: attr.albumName || null,
+                        duration_ms: attr.durationInMillis || null
+                    }};
+                }} else if ("{}" === "albums") {{
+                    return {{
+                        type: "Album",
+                        id: data.id || null,
+                        name: attr.name || null,
+                        artist: attr.artistName || null,
+                        track_count: attr.trackCount || null
+                    }};
+                }} else if ("{}" === "playlists") {{
+                    return {{
+                        type: "Playlist",
+                        id: data.id || null,
+                        name: attr.name || null,
+                        desc: attr.description?.standard || null
+                    }};
+                }}
+
+                return null;
+            }} catch (err) {{
+                console.error("Search error:", err);
+                return null;
+            }}
+        }})();
+        "#,
+        query,
+        item_type.as_str(),
+        item_type.as_str(),
+        item_type.as_str(),
+        item_type.as_str(),
+        item_type.as_str(),
+    )
+    } else {
+    format!(
+        r#"
+        return (async () => {{
+                const mk = MusicKit.getInstance();
+                if (!mk || !mk.isAuthorized) {{
+                    await mk?.authorize();
+                }}
+                const storefront = mk.storefront || 'us';
+
+                const searchResponse = await mk.api.music(`v1/catalog/${{storefront}}/search`, {{
+                    term: "{}",
+                    types: "{}",
+                    limit: 1
+                }});
+
+                const data = searchResponse?.data?.results?.{}?.data?.[0];
+                if (!data) {{
+                    return null;
+                }}
+
+
+                if ("{}" === "songs") {{
+                    return {{
+                        type: "Track",
+                        id: data.id || null,
+                        title: attr.name || null,
+                        artist: attr.artistName || null,
+                        album: attr.albumName || null,
+                        duration_ms: attr.durationInMillis || null
+                    }};
+                }} else if ("{}" === "albums") {{
+                    return {{
+                        type: "Album",
+                        id: data.id || null,
+                        name: attr.name || null,
+                        artist: attr.artistName || null,
+                        track_count: attr.trackCount || null
+                    }};
+                }} else if ("{}" === "playlists") {{
+                    return {{
+                        type: "Playlist",
+                        id: data.id || null,
+                        name: attr.name || null,
+                        desc: attr.description?.standard || null
+                    }};
+                }}
+
+                return null;
+            }} catch (err) {{
+                console.error("Search error:", err);
+                return null;
+            }}
+        }})();
+        "#,
+        query,
+        item_type.as_str(),
+        item_type.as_str(),
+        item_type.as_str(),
+        item_type.as_str(),
+        item_type.as_str(),
+    )
+    };
     let res = driver.execute(script, vec![]).await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("[Js Error] {}", e.to_string()))?;
 
-    let id_str: String = serde_json::from_value(res.json().clone())
-        .map_err(|e| e.to_string())?;
 
-    Ok(id_str)
+    let res: SearchResult = serde_json::from_value(res.json().clone())
+        .map_err(|e| e.to_string())?;
+    Ok(res)
 }
+
 
 //Should work not tested
 /// Resume playback
@@ -65,8 +249,6 @@ pub async fn next_track(driver: &WebDriver) -> Result<(), String> {
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
-
-
 //Should work not tested
 /// Skip to previous track
 pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
@@ -76,7 +258,7 @@ pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
 }
 
 //Should work not tested
-pub async fn shuffle_toggle(driver: &WebDriver) -> Result<(), String> {
+pub async fn shuffle_toggle(driver: &WebDriver) -> Result<i64, String> {
     let script = r#"
         return window.MusicKit.getInstance().shuffleMode;
     "#;
@@ -95,11 +277,11 @@ pub async fn shuffle_toggle(driver: &WebDriver) -> Result<(), String> {
 
     let script = format!{"MusicKit.getInstance().shuffleMode = {};", num_mode};
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(num_mode)
 }
 
 //WORKING TESTED
-pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistInfo>, String> {
+pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<Playlist>, String> {
     let script = r#"
         return (async () => {
             try {
@@ -114,8 +296,8 @@ pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistIn
                 // 2. Return the FLATTENED mapped array, NOT 'rawItems'
                 return rawItems.map(p => ({
                     id: p.id,
-                    name: p.attributes?.name || "Untitled Playlist",
-                    desc: p.attributes?.description?.standard || "",
+                    name: p.attributes?.name || null,
+                    desc: p.attributes?.description?.standard || null,
                 }));
             } catch (err) {
                 console.error("MusicKit error:", err);
@@ -132,7 +314,7 @@ pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<PlaylistIn
     let json_val = res.json();
 
     // 3. Explicit error reporting instead of silent fallback
-    serde_json::from_value::<Vec<PlaylistInfo>>(json_val.clone()).map_err(|e| {
+    serde_json::from_value::<Vec<Playlist>>(json_val.clone()).map_err(|e| {
         format!(
             "Deserialization failed for JSON `{}`: {}",
             json_val, e

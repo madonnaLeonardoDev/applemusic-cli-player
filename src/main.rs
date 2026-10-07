@@ -36,7 +36,7 @@ fn main() {
                 _ =>  {
                     
                     // Rejoin all remaining arguments into a single command string (e.g., "play track_name")
-                    let full_command = args.join(" ");
+                    let full_command = args.join("");
 
                     // Connect to the daemon's UNIX socket
                     match UnixStream::connect(DAEMON_SOCKET_PATH.as_path()) {

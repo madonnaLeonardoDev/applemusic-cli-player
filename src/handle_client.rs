@@ -1,10 +1,60 @@
+
 use thirtyfour::WebDriver;
 use tokio::net::UnixStream;
 use tokio::io::{AsyncBufReadExt,BufReader};
-
-use crate::apple_music_navigation::get_id;
+use crate::apple_music_navigation::ItemType;
 use crate::daemon_controls::*;
+use clap::{Parser, Subcommand};
+use crate::paths::NAME;
 
+#[derive(Parser)]
+#[command(name = "daemon-cli", author, version, about = "Controls Apple Music daemon")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Search {
+        #[arg(short, long)]
+        stype: String,
+
+        #[arg(short, long)]
+        query: String,
+
+        #[arg(short, long)]
+        next: bool,
+
+        #[arg(short, long)]
+        play: bool,
+
+        #[arg(short, long)]
+        library: bool
+    },
+    IdSearch {
+        #[arg(short, long)]
+        stype: String,
+        #[arg(short, long)]
+        id: String,
+        #[arg(short, long)]
+        play: bool
+    },
+    Playid {
+        #[arg(short, long)]
+        stype: String,
+        #[arg(short, long)]
+        id: String,
+        #[arg(short, long)]
+        play: bool
+    },
+    Next {},
+    Prev {},
+    Play{},
+    Shuffle{},
+    Current{},
+    LsPlaylists{}
+}
 
 pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Result<String, String> {
     let mut reader = BufReader::new(stream);
@@ -17,67 +67,69 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
         return Err("Invalid empty command".to_string());
     }
 
-    let line_args: Vec<&str> = line.trim().split('-').collect();
+    let raw_args = line.trim().split_whitespace();
+    let args = std::iter::once(NAME).chain(raw_args);
 
-    let command = *line_args.get(0)
-    .ok_or_else(||"Invalid empty command".to_string())?;
+    let cli = match Cli::try_parse_from(args) {
+        Ok(c) => c,
+        Err(e) => return Ok(e.to_string()), 
+    };
+    
 
 
 
-    let result: Option<String> =  match command {
-        //CORE COMMANDS
-        "getid" => {
-            let arg_0 = check_args(&line_args, 1)?;
-            let arg_1 = check_args(&line_args, 2)?;
-            Some(get_id(driver, arg_0, arg_1).await?)
+    let result: Result<String, String> =  match cli.command {
+        Commands::Search { stype, query, next, play, library } => {
+            let search_type = match stype.to_lowercase().as_str() {
+                "song" | "s" => ItemType::Song,
+                "album" | "a" => ItemType::Album,
+                "playlist" | "p" => ItemType::Playlist,
+                _ => {
+                   return Err("Invalid search type (stype) argument".to_string());
+                }
+            };
 
+            Ok(cmd_search(driver, query, &search_type, library, next, play).await?)
         },
-        "next" => {
-            None
+        Commands::Current {  } => {
+            Ok(cmd_current_track(driver).await?)
         },
-        "previous" => {
-            None
+        Commands::LsPlaylists {  } => {
+            Ok(cmd_list_playlists(driver).await?)
         },
-        "play_pause" => {
-            None
-        },
-        //NAVIGATION COMMANDS
+        Commands::Playid { stype, id, play } => {
+            let search_type = match stype.to_lowercase().as_str() {
+                "song" | "s" => ItemType::Song,
+                "album" | "a" => ItemType::Album,
+                "playlist" | "p" => ItemType::Playlist,
+                _ => {
+                    return Err("Invalid search type (stype) argument".to_string());
+                }
+            };
 
-        "current" => {
-            Some(cmd_current_track(driver).await?)
+            Ok(cmd_play_by_id(driver, id, search_type, play).await?)
         },
-        "chplaylist" => {
-           let _ = check_args(&line_args, 1)?;
-           None
+        Commands::Play {  } => {
+            Ok(cmd_play_pause(driver).await?)
         },
-        "lsplaylist" => {
-           Some(cmd_list_playlists(driver).await?)
+        Commands::Next {  } => {
+            Ok(cmd_next(driver).await?)
         },
-        "qnext" => {
-            let _ = check_args(&line_args, 1)?;
-            None
+        Commands::Prev {  } => {
+            Ok(cmd_prev(driver).await?)
         },
-        "playsong" => {
-            let _ = check_args(&line_args, 1)?;
-            None
-        },
+        Commands::Shuffle {  } => {
+            Ok(cmd_toggle_shuffle(driver).await?)
+        }
         _ => {
-           None
+           Err("Invalid Command".to_string())
         }
     };
 
-    if result.is_none() {
-        return Ok(format!("{} is not a command", command));
+    if let Err(e) = result {
+        return Ok(e.to_string());
     }
 
     Ok(result.unwrap())
 
-}
-
-fn check_args(args_vec: &Vec<&str>, index: usize) -> Result<String, String>{
-    
-    if args_vec.get(index).is_none() {
-        return Err("This command requires an argument".to_string());
-    };
-    Ok(args_vec[index].to_string())
 }

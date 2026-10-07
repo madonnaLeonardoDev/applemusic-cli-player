@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
+pub const NAME:&str = "applemusic-cli";
 
 pub static BROWSER_PROFILE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
      std::env::var("HOME")
