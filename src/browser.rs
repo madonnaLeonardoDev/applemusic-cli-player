@@ -98,7 +98,7 @@ pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
         .to_string();
 
     // 2. Pass --profile (DOUBLE DASH) and the absolute path
-    caps.add_arg("-profile").map_err(|e| e.to_string())?;
+    caps.add_arg("--profile").map_err(|e| e.to_string())?;
     caps.add_arg(&abs_path).map_err(|e| e.to_string())?;
     } else {
         return Err("Profile path returned None".to_string());

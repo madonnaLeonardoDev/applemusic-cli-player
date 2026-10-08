@@ -16,7 +16,7 @@ fn format_time(time_ms: u32) -> String {
     }
 }
 
-//ADDED
+//TOFIX
 pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType, is_library: bool, queue: bool, insta_play: bool) -> Result<String, String> {
     let search_res = search(driver, query, search_type,is_library).await?;
 
@@ -55,7 +55,7 @@ pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType
         let track_count = if album.track_count.is_none() {
             "".to_string()
         } else {
-            format!("Tracks: {}",album.track_count.unwrap())
+            format!("{}",album.track_count.unwrap())
         };
 
         (format!("{} - (id:{})\n {} | Tracks:{}", album.name.unwrap_or("Unkown Name".to_string()), id, album.artist.unwrap_or("Unkown Artist".to_string()), track_count), id)
@@ -74,6 +74,7 @@ pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType
     Ok(result_tuple.0)
 }
 
+//TESTED WORKS
 pub async fn cmd_play_by_id(driver:&WebDriver, id:String, item_type: ItemType, insta_play: bool) -> Result<String, String> {
     let id = play_next(driver, &item_type, id).await
     .map_err(|e| e.to_string())?;
@@ -85,6 +86,7 @@ pub async fn cmd_play_by_id(driver:&WebDriver, id:String, item_type: ItemType, i
     Ok(format!("Playing Next: {}",id))
 }
 
+//TESTED WORKS
 pub async fn cmd_play_pause(driver:&WebDriver) -> Result<String, String> {
     let script = r#"
         const mk = MusicKit.getInstance();
@@ -113,6 +115,7 @@ pub async fn cmd_play_pause(driver:&WebDriver) -> Result<String, String> {
     }
 }
 
+//TESTED WORKS
 pub async fn cmd_next(driver:&WebDriver) -> Result<String, String> {
     if let Err(e) = next_track(driver).await {
         return Err(e.to_string());
@@ -130,6 +133,7 @@ pub async fn cmd_prev(driver:&WebDriver) -> Result<String, String> {
     Ok("Previous Track".to_string())
 }
 
+//TESTED WORKS (Unkown Duration maybe bug)
 pub async fn cmd_current_track(driver:&WebDriver) -> Result<String, String> {
 
     if let Some(track) = get_current_track(driver).await? {
@@ -166,6 +170,8 @@ pub async fn cmd_current_track(driver:&WebDriver) -> Result<String, String> {
     
 }
 
+
+//TESTED WORKS
 pub async fn cmd_list_playlists(driver:&WebDriver) -> Result<String, String> {
     match list_library_playlists(driver).await {
     Ok(pl) => {
@@ -179,6 +185,7 @@ pub async fn cmd_list_playlists(driver:&WebDriver) -> Result<String, String> {
     }
 }
 
+//TESTED WORKS
 pub async fn cmd_toggle_shuffle(driver:&WebDriver) -> Result<String, String> {
     let mode = shuffle_toggle(driver).await
         .map_err(|e| e.to_string())?;

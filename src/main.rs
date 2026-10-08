@@ -19,7 +19,7 @@ fn main() {
     if let Some(command) = args.get(0) {
 
         match command.as_str() {
-                "start" => {
+                "startd" => {
 
                     if let Err(e) = start_daemon() {
                         eprintln!("{}", e);
@@ -27,7 +27,7 @@ fn main() {
                     }
 
                 },
-                "stop" => {
+                "stopd" => {
                     match kill_all() {
                         Ok(msg) => println!("{}", msg),
                         Err(e) => {println!("{}", e)}
@@ -36,7 +36,7 @@ fn main() {
                 _ =>  {
                     
                     // Rejoin all remaining arguments into a single command string (e.g., "play track_name")
-                    let full_command = args.join("");
+                    let full_command = args.join(" ");
 
                     // Connect to the daemon's UNIX socket
                     match UnixStream::connect(DAEMON_SOCKET_PATH.as_path()) {

@@ -16,8 +16,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(visible_alias = "s")]
     Search {
-        #[arg(short, long)]
+        #[arg(short = 't', long)]
         stype: String,
 
         #[arg(short, long)]
@@ -32,27 +33,26 @@ enum Commands {
         #[arg(short, long)]
         library: bool
     },
-    IdSearch {
-        #[arg(short, long)]
-        stype: String,
-        #[arg(short, long)]
-        id: String,
-        #[arg(short, long)]
-        play: bool
-    },
+    #[command(visible_alias = "pid")]
     Playid {
-        #[arg(short, long)]
+        #[arg(short = 't', long)]
         stype: String,
         #[arg(short, long)]
         id: String,
         #[arg(short, long)]
         play: bool
     },
+    #[command(visible_alias = "nx")]
     Next {},
+    #[command(visible_alias = "pv")]
     Prev {},
-    Play{},
+    #[command(visible_alias = "pp")]
+    PlayPause{},
+    #[command(visible_alias = "sh")]
     Shuffle{},
+    #[command(visible_alias = "c")]
     Current{},
+    #[command(visible_alias = "lspl")]
     LsPlaylists{}
 }
 
@@ -88,8 +88,8 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
                    return Err("Invalid search type (stype) argument".to_string());
                 }
             };
-
-            Ok(cmd_search(driver, query, &search_type, library, next, play).await?)
+            let joined_query = query.replace("-", " ");
+            Ok(cmd_search(driver, joined_query, &search_type, library, next, play).await?)
         },
         Commands::Current {  } => {
             Ok(cmd_current_track(driver).await?)
@@ -109,7 +109,7 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
 
             Ok(cmd_play_by_id(driver, id, search_type, play).await?)
         },
-        Commands::Play {  } => {
+        Commands::PlayPause {  } => {
             Ok(cmd_play_pause(driver).await?)
         },
         Commands::Next {  } => {
@@ -120,9 +120,6 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
         },
         Commands::Shuffle {  } => {
             Ok(cmd_toggle_shuffle(driver).await?)
-        }
-        _ => {
-           Err("Invalid Command".to_string())
         }
     };
 
