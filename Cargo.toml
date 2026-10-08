@@ -1,5 +1,5 @@
 [package]
-name = "AppleMusic-CLI"
+name = "applemusic-cli"
 version = "0.1.0"
 edition = "2024"
 
@@ -12,3 +12,9 @@ serde = "1.0.229"
 serde_json = "1.0.151"
 thirtyfour = "0.37.5"
 tokio = { version = "1.53.2", features = ["full"] }
+
+[profile.release]
+opt-level = 3        
+lto = true            
+codegen-units = 1     
+strip = true          

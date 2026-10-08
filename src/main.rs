@@ -72,7 +72,7 @@ fn main() {
                             }
                         }
                         Err(_) => {
-                            println!("Daemon is not running. Start it first using `daemon start`.");
+                            println!("Daemon is not running. Start it first using `stard (sd)`.");
                         }
                     }
         }

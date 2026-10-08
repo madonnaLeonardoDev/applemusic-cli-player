@@ -2,7 +2,7 @@ use std::fs::{self};
 use tokio::io::{AsyncWriteExt};
 use std::path::Path;
 use daemonize::Daemonize;
-use crate::paths::{DAEMON_SOCKET_PATH, DAEMON_PID_PATH, GECKO_PID_PATH};
+use crate::paths::{DAEMON_ERR_PATH, DAEMON_OUT_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, GECKO_PID_PATH};
 use crate::handle_client::{handle_client};
 use crate::browser::{apple_music_auth, init_browser, open_apple_music};
 
@@ -36,9 +36,9 @@ pub fn start_daemon(head: bool) -> Result<(), String> {
 
 //SETUP deamonize
 
-    let stdout = fs::File::create("/tmp/applemusic_daemon.out")
+    let stdout = fs::File::create(DAEMON_OUT_PATH.as_path())
         .map_err(|e| format!("Failed to create stdout log: {}", e))?;
-    let stderr = fs::File::create("/tmp/applemusic_daemon.err")
+    let stderr = fs::File::create(DAEMON_ERR_PATH.as_path())
         .map_err(|e| format!("Failed to create stderr log: {}", e))?;
 
 
@@ -133,7 +133,7 @@ pub fn kill_pid(pid_path: &Path) -> Result<String, String> {
         .map_err(|e| format!("Could not read pid at: {}, {}", pid_path.display(), e))?;
         
     let pid = pid_str.trim().parse::<i32>()
-        .map_err(|e| format!("Could not parse pid, {}", e))?;
+        .map_err(|e| format!("Could not DAEMON_ERR_PAT parse pid, {}", e))?;
 
     // Send SIGTERM to the process
     unsafe {
