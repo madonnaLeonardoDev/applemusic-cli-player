@@ -7,7 +7,7 @@ use crate::handle_client::{handle_client};
 use crate::browser::{apple_music_auth, init_browser, open_apple_music};
 
 
-pub fn start_daemon() -> Result<(), String> {
+pub fn start_daemon(head: bool) -> Result<(), String> {
 //CHECK AND CLEANUP (SOCK + PID)    
 
     if Path::new(DAEMON_PID_PATH.as_path()).exists() {
@@ -68,7 +68,7 @@ pub fn start_daemon() -> Result<(), String> {
                 return Err("Error, cant start apple music auth".to_string());
             },
             Ok(_) => {
-                let state = init_browser(true).await?;
+                let state = init_browser(head).await?;
                 open_apple_music(&state.driver).await?;
                 // Bind Tokio async Unix socket listener
                 let listener = tokio::net::UnixListener::bind(&*DAEMON_SOCKET_PATH)

@@ -7,7 +7,7 @@ pub static BROWSER_PROFILE_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
      std::env::var("HOME")
     .map(PathBuf::from)
     .unwrap_or_else(|_| PathBuf::from("~/"))
-    .join(".config/mozilla/firefox/20kk4r7v.default-release/")
+    .join(".config/applemusic-daemon/browser-profile")
 });
 
 pub static DAEMON_SOCKET_PATH: LazyLock<PathBuf> = LazyLock::new(|| {

@@ -16,7 +16,7 @@ fn format_time(time_ms: u32) -> String {
     }
 }
 
-//TOFIX
+//TESTED WORKS
 pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType, is_library: bool, queue: bool, insta_play: bool) -> Result<String, String> {
     let search_res = search(driver, query, search_type,is_library).await?;
 
@@ -64,19 +64,21 @@ pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType
 
     };
     if queue{
-                play_next(driver, search_type, result_tuple.1).await?;
-                if insta_play {
-                    next_track(driver).await?;
-                    return Ok(format!("Now Playing:\n{}", result_tuple.0))
-                }
-                return Ok(format!("Playing Next:\n{}", result_tuple.0))
+                play_next(driver, search_type, &result_tuple.1).await?;
             }
+    if insta_play {
+        play_next(driver, search_type, &result_tuple.1).await?;
+        next_track(driver).await?
+    }
+    if queue && insta_play {
+        return Err("Either Insta-Play (-p) or Play-Next (-n)".to_string());
+    }
     Ok(result_tuple.0)
 }
 
 //TESTED WORKS
 pub async fn cmd_play_by_id(driver:&WebDriver, id:String, item_type: ItemType, insta_play: bool) -> Result<String, String> {
-    let id = play_next(driver, &item_type, id).await
+    let id = play_next(driver, &item_type, &id).await
     .map_err(|e| e.to_string())?;
 
     if insta_play {
@@ -134,6 +136,7 @@ pub async fn cmd_prev(driver:&WebDriver) -> Result<String, String> {
 }
 
 //TESTED WORKS (Unkown Duration maybe bug)
+
 pub async fn cmd_current_track(driver:&WebDriver) -> Result<String, String> {
 
     if let Some(track) = get_current_track(driver).await? {
@@ -183,6 +186,13 @@ pub async fn cmd_list_playlists(driver:&WebDriver) -> Result<String, String> {
     },
     Err(e) => return Err(e)
     }
+}
+
+//
+pub async fn cmd_clear_queue(driver:&WebDriver) -> Result<String, String> {
+    clear_queue(driver).await?;
+
+    Ok("Queue Cleared".to_string())
 }
 
 //TESTED WORKS

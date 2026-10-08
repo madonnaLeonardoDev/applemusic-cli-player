@@ -27,8 +27,8 @@ enum Commands {
         #[arg(short, long)]
         next: bool,
 
-        #[arg(short, long)]
-        play: bool,
+        #[arg(short = 'p', long = "instaplay")]
+        insta_play: bool,
 
         #[arg(short, long)]
         library: bool
@@ -43,17 +43,19 @@ enum Commands {
         play: bool
     },
     #[command(visible_alias = "nx")]
-    Next {},
+    Next,
     #[command(visible_alias = "pv")]
-    Prev {},
+    Prev,
     #[command(visible_alias = "pp")]
-    PlayPause{},
+    PlayPause,
     #[command(visible_alias = "sh")]
-    Shuffle{},
+    Shuffle,
     #[command(visible_alias = "c")]
-    Current{},
+    Current,
     #[command(visible_alias = "lspl")]
-    LsPlaylists{}
+    LsPlaylists,
+    #[command(visible_alias = "cq")]
+    Cqueue
 }
 
 pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Result<String, String> {
@@ -79,7 +81,7 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
 
 
     let result: Result<String, String> =  match cli.command {
-        Commands::Search { stype, query, next, play, library } => {
+        Commands::Search { stype, query, next, insta_play, library } => {
             let search_type = match stype.to_lowercase().as_str() {
                 "song" | "s" => ItemType::Song,
                 "album" | "a" => ItemType::Album,
@@ -89,9 +91,9 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
                 }
             };
             let joined_query = query.replace("-", " ");
-            Ok(cmd_search(driver, joined_query, &search_type, library, next, play).await?)
+            Ok(cmd_search(driver, joined_query, &search_type, library, next, insta_play).await?)
         },
-        Commands::Current {  } => {
+        Commands::Current => {
             Ok(cmd_current_track(driver).await?)
         },
         Commands::LsPlaylists {  } => {
@@ -109,17 +111,20 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
 
             Ok(cmd_play_by_id(driver, id, search_type, play).await?)
         },
-        Commands::PlayPause {  } => {
+        Commands::PlayPause => {
             Ok(cmd_play_pause(driver).await?)
         },
-        Commands::Next {  } => {
+        Commands::Next  => {
             Ok(cmd_next(driver).await?)
         },
-        Commands::Prev {  } => {
+        Commands::Prev  => {
             Ok(cmd_prev(driver).await?)
         },
-        Commands::Shuffle {  } => {
+        Commands::Shuffle => {
             Ok(cmd_toggle_shuffle(driver).await?)
+        },
+        Commands::Cqueue => {
+            Ok(cmd_clear_queue(driver).await?)
         }
     };
 

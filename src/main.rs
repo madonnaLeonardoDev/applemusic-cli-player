@@ -1,8 +1,8 @@
-use std::env;
 use std::os::unix::net::UnixStream;
 use std::io::{Write, Read};
 use std::net::Shutdown;
-
+use clap::{Parser, Subcommand};
+use std::ffi::OsString;
 use crate::paths::{DAEMON_SOCKET_PATH};
 use crate::daemon::{kill_all, start_daemon};
 mod daemon;
@@ -12,30 +12,47 @@ mod browser;
 mod apple_music_navigation;
 mod daemon_controls;
 
+#[derive(Parser)]
+struct Cli {
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    #[command(visible_alias = "sd")]
+    Startd{
+        #[arg(short = 'H', long)]
+        head:bool
+    },
+    #[command(visible_alias = "kd")]
+    Killd,
+
+    #[command(external_subcommand)]
+    External(Vec<OsString>)
+}
+
 
 fn main() {
-    let args: Vec<String> = env::args().skip(1).collect();
+    let cli = Cli::parse();
 
-    if let Some(command) = args.get(0) {
-
-        match command.as_str() {
-                "startd" => {
-
-                    if let Err(e) = start_daemon() {
+    match cli.command {
+        Commands::Killd => {
+            println!("{}",kill_all().unwrap());
+        },
+        Commands::Startd { head } => {
+            if let Err(e) = start_daemon(head) {
                         eprintln!("{}", e);
                         return;
-                    }
-
-                },
-                "stopd" => {
-                    match kill_all() {
-                        Ok(msg) => println!("{}", msg),
-                        Err(e) => {println!("{}", e)}
-                    }
-                },
-                _ =>  {
-                    
-                    // Rejoin all remaining arguments into a single command string (e.g., "play track_name")
+            }
+        },
+        Commands::External(os_str) => {
+            // Rejoin all remaining arguments into a single command string (e.g., "play track_name")
+                    let args: Vec<String> = os_str
+                        .iter()
+                        .filter_map(|s| s.to_str().map(String::from))
+                        .collect();
                     let full_command = args.join(" ");
 
                     // Connect to the daemon's UNIX socket
@@ -58,7 +75,6 @@ fn main() {
                             println!("Daemon is not running. Start it first using `daemon start`.");
                         }
                     }
-            }
         }
     }
 }

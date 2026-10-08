@@ -8,16 +8,16 @@ pub struct BrowserState {
     pub geckodriver_process: Child,
 }
 
-pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
+pub async fn init_browser(head: bool) -> Result<BrowserState, String> {
     // 3. CLEAN UP STALE FIREFOX PROFILE LOCK
-    let lock_file = BROWSER_PROFILE_PATH.join("/lock");
-    if lock_file.exists() {
-        if let Err(e) = fs::remove_file(&lock_file) {
-            eprintln!("Could not remove stale profile lock: {}", e);
-        } else {
-            println!("Removed stale Firefox profile lock.");
-        }
+let lock_file = BROWSER_PROFILE_PATH.join("lock");
+if lock_file.exists() {
+    if let Err(e) = fs::remove_file(&lock_file) {
+        eprintln!("Could not remove stale profile lock: {}", e);
+    } else {
+        println!("Removed stale Firefox profile lock.");
     }
+}
 
     // 1. CLEAN UP STALE GECKO
     if Path::new(&*GECKO_PID_PATH).exists() {
@@ -84,7 +84,7 @@ pub async fn init_browser(is_headless: bool) -> Result<BrowserState, String> {
     // 5. Configure Firefox capabilities with persistent profile path
     let mut caps = DesiredCapabilities::firefox();
     
-    if is_headless {
+    if !head {
         caps.set_headless().map_err(|e| e.to_string())?;
     }
     

@@ -1,3 +1,5 @@
+use std::vec;
+
 use thirtyfour::prelude::*;
 use serde::{Serialize, Deserialize};
 
@@ -198,7 +200,7 @@ pub async fn search(driver: &WebDriver, query: String, item_type: &ItemType, is_
     search_result.ok_or_else(|| "No Matches Found".to_string())
 }
 
-pub async fn play_next(driver: &WebDriver, item_type: &ItemType, id: String) -> Result<String, String> {
+pub async fn play_next(driver: &WebDriver, item_type: &ItemType, id: &String) -> Result<String, String> {
     let script = format!(r#"
     return (async () => {{
         const mk = MusicKit.getInstance();
@@ -223,7 +225,7 @@ let is_success: bool = serde_json::from_value(res.json().clone())
     .map_err(|e| e.to_string())?;
 
 if is_success {
-    return Ok(id)
+    return Ok(id.to_string())
 }
 
 Err("Could Not play next, maybe wrong id".to_string())
@@ -370,4 +372,14 @@ return (() => {
         return Ok(None)
     }
     Ok(Some(track_obj))
+}
+
+pub async fn clear_queue(driver: &WebDriver) -> Result<(), String> {
+    let script = r#"
+    MusicKit.getInstance().clearQueue()
+    "#;
+
+    driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
+    
+    Ok(())
 }
