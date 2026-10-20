@@ -1,5 +1,5 @@
 use std::vec;
-
+use crate::daemon_controls::format_time;
 use thirtyfour::prelude::*;
 use serde::{Serialize, Deserialize};
 
@@ -10,6 +10,28 @@ pub struct Track {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub duration_ms: Option<u32>
+}
+
+impl Track {
+    pub fn pretty_display(&self) -> String {
+    let duration = if self.duration_ms.is_some() {
+        format_time(self.duration_ms.unwrap())
+    } else {
+        "Unknown Duration".to_string()
+    };
+    
+
+
+    format!(
+            "{} - (id: {})\n{} | {} | ({})",
+            self.title.clone().unwrap_or_else(|| "Unknown Title".to_string()),
+            self.id.clone().unwrap_or_else(|| "Unknown ID".to_string()),
+            self.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string()),
+            self.album.clone().unwrap_or_else(|| "Unknown Album".to_string()),
+            duration
+
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -36,6 +58,18 @@ pub struct Album {
     pub name: Option<String>,
     pub artist: Option<String>,
     pub track_count: Option<u32>,
+}
+
+impl Album {
+    pub fn pretty_display(&self) -> String {
+        format!(
+            "{}(id: {})\n{} | Tracks: {}",
+            self.name.clone().unwrap_or_else(|| "Unknown Name".to_string()),
+            self.id.clone().unwrap_or_else(|| "Unknown ID".to_string()),
+            self.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string()),
+            self.track_count.clone().unwrap_or_else(|| 0)
+        )
+    }
 }
 
 pub enum ItemType {
@@ -183,7 +217,7 @@ pub async fn search(driver: &WebDriver, query: String, item_type: &ItemType, is_
             }})();
             "#,
             query,
-            item_type.as_str(), // Fixed: catalog uses 'songs', not 'library-songs'
+            item_type.as_str(),
             item_type.as_str(),
             item_type.as_str(),
             item_type.as_str(),
@@ -200,7 +234,7 @@ pub async fn search(driver: &WebDriver, query: String, item_type: &ItemType, is_
     search_result.ok_or_else(|| "No Matches Found".to_string())
 }
 
-pub async fn play_next(driver: &WebDriver, item_type: &ItemType, id: &String) -> Result<String, String> {
+pub async fn play_next(driver: &WebDriver, item_type: &ItemType, id: &str) -> Result<String, String> {
     let script = format!(r#"
     return (async () => {{
         const mk = MusicKit.getInstance();
@@ -231,38 +265,27 @@ if is_success {
 Err("Could Not play next, maybe wrong id".to_string())
     
 }
-//Should work not tested
-/// Resume playback
 pub async fn play(driver: &WebDriver) -> Result<(), String> {
     let script = "MusicKit.getInstance().play();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
-
-//Should work not tested
-/// Pause playback
 pub async fn pause(driver: &WebDriver) -> Result<(), String> {
     let script = "MusicKit.getInstance().pause();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
-
-//Should work not tested
-/// Skip to next track
 pub async fn next_track(driver: &WebDriver) -> Result<(), String> {
     let script = "MusicKit.getInstance().skipToNextItem();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
-//Should work not tested
-/// Skip to previous track
 pub async fn previous_track(driver: &WebDriver) -> Result<(), String> {
     let script = "MusicKit.getInstance().skipToPreviousItem();";
     driver.execute(script, vec![]).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
-//Should work not tested
 pub async fn shuffle_toggle(driver: &WebDriver) -> Result<i64, String> {
     let script = r#"
         return window.MusicKit.getInstance().shuffleMode;
@@ -285,7 +308,6 @@ pub async fn shuffle_toggle(driver: &WebDriver) -> Result<i64, String> {
     Ok(num_mode)
 }
 
-//WORKING TESTED
 pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<Playlist>, String> {
     let script = r#"
         return (async () => {
@@ -327,8 +349,6 @@ pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<Playlist>,
     })
 }
 
-//Should work not tested
-/// Returns metadata for the currently playing item, or `Ok(None)` if nothing is queued/playing.
 pub async fn get_current_track(driver: &WebDriver) -> Result<Option<Track>, String> {
     let script = r#"
 return (() => {
@@ -374,6 +394,7 @@ return (() => {
     Ok(Some(track_obj))
 }
 
+
 pub async fn clear_queue(driver: &WebDriver) -> Result<(), String> {
     let script = r#"
     MusicKit.getInstance().clearQueue()
@@ -383,3 +404,28 @@ pub async fn clear_queue(driver: &WebDriver) -> Result<(), String> {
     
     Ok(())
 }
+
+pub async fn list_queue(driver: &WebDriver) -> Result<Vec<Track>, String> {
+ let script = r#"
+    return (async () => {
+    let res = MusicKit.getInstance().queue._queueItems || [];
+    return res.map(e => ({
+        id: e.item.id,
+        title: e.item.attributes.name,
+        artist: e.item.attributes.artistName,
+        album: e.item.attributes.albumName,
+        duration_ms: e.item.attributes.durationInMillis
+    }));
+})();
+ "#;
+
+let res = driver.execute(script, vec![]).await
+    .map_err(|e| e.to_string())?;
+
+let parsed_res: Vec<Track> = serde_json::from_value(res.json().clone())
+    .map_err(|e| e.to_string())?;
+
+
+
+ Ok(parsed_res)
+} 

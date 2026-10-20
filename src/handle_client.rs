@@ -55,7 +55,10 @@ enum Commands {
     #[command(visible_alias = "lspl")]
     LsPlaylists,
     #[command(visible_alias = "cq")]
-    Cqueue
+    ClearQueue,
+    #[command(visible_alias = "lq")]
+    LsQueue
+
 }
 
 pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Result<String, String> {
@@ -123,8 +126,11 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
         Commands::Shuffle => {
             Ok(cmd_toggle_shuffle(driver).await?)
         },
-        Commands::Cqueue => {
+        Commands::ClearQueue => {
             Ok(cmd_clear_queue(driver).await?)
+        },
+        Commands::LsQueue => {
+            Ok(cmd_list_queue(driver).await?)
         }
     };
 

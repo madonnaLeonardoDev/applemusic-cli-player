@@ -1,7 +1,7 @@
 use thirtyfour::{WebDriver};
 use crate::apple_music_navigation::*;
 
-fn format_time(time_ms: u32) -> String {
+pub fn format_time(time_ms: u32) -> String {
     let tot_secs = time_ms / 1000;
     let seconds = tot_secs % 60;
     let minutes = tot_secs / 60;
@@ -22,43 +22,31 @@ pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType
 
     let result_tuple:(String, String) = match search_res {
         SearchResult::Track(track) => {
-            let id = if track.id.is_none(){
-                return  Ok("No matches found".to_string());
-                } else {
-                    track.id.unwrap()
-                };
-            
-            let time = if track.duration_ms.is_none(){
-                "Unkown Duration".to_string()
+            let id = if track.id.is_none() {
+            return Ok("No Matches found".to_string());
             } else {
-                format_time(track.duration_ms.unwrap())
+            track.id.clone().unwrap()
             };
-            
-            (format!("{} - (id:{})\n{} | {} | {}", track.title.unwrap_or("Unkown title".to_string()),id ,track.artist.unwrap_or("Unkown Artist".to_string()), track.album.unwrap_or("Unkown Album".to_string()), time), id)
+
+            (track.pretty_display(), id)
     },
     SearchResult::Playlist(playlist) => {
         let id = if playlist.id.is_none() {
             return Ok("No Matches found".to_string());
         } else {
-            playlist.id.unwrap()
+            playlist.id.clone().unwrap()
         };
 
-        (format!("{} - (id:{})\n{}", playlist.name.unwrap_or("Unkown Name".to_string()), id, playlist.desc.unwrap_or("".to_string())), id)
+        (playlist.pretty_display(), id)
     },
     SearchResult::Album(album) => {
         let id = if album.id.is_none() {
             return Ok("No Matches Found".to_string());
         } else {
-            album.id.unwrap()
+            album.id.clone().unwrap()
         };
 
-        let track_count = if album.track_count.is_none() {
-            "".to_string()
-        } else {
-            format!("{}",album.track_count.unwrap())
-        };
-
-        (format!("{} - (id:{})\n {} | Tracks:{}", album.name.unwrap_or("Unkown Name".to_string()), id, album.artist.unwrap_or("Unkown Artist".to_string()), track_count), id)
+        (album.pretty_display(), id)
 
     }
 
@@ -73,7 +61,7 @@ pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType
     if queue && insta_play {
         return Err("Either Insta-Play (-p) or Play-Next (-n)".to_string());
     }
-    Ok(result_tuple.0)
+    Ok(result_tuple.0.to_string())
 }
 
 //TESTED WORKS
@@ -204,4 +192,14 @@ pub async fn cmd_toggle_shuffle(driver:&WebDriver) -> Result<String, String> {
         return Ok("Shuffling On".to_string());
     }
     Ok("Shuffling Off".to_string())
+}
+
+pub async fn cmd_list_queue(driver:&WebDriver) -> Result<String, String> {
+    let queue = list_queue(driver).await?;
+
+    let formatted_str:String = queue.iter()
+    .map(|track| format!("{}",track.pretty_display()))
+    .collect();
+    
+    Ok(formatted_str)
 }
