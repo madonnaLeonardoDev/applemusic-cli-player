@@ -57,7 +57,16 @@ enum Commands {
     #[command(visible_alias = "cq")]
     ClearQueue,
     #[command(visible_alias = "lq")]
-    LsQueue
+    LsQueue,
+    #[command(visible_alias = "v")]
+    Volume {
+        #[arg(
+            trailing_var_arg = true,
+            allow_hyphen_values = true,
+            num_args = 0..=1
+        )]
+        args: Option<u32>,
+    },
 
 }
 
@@ -131,6 +140,9 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
         },
         Commands::LsQueue => {
             Ok(cmd_list_queue(driver).await?)
+        },
+        Commands::Volume { args } => {
+            Ok(cmd_volume(driver, args).await?)
         }
     };
 

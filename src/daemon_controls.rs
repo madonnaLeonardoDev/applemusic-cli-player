@@ -203,3 +203,20 @@ pub async fn cmd_list_queue(driver:&WebDriver) -> Result<String, String> {
     
     Ok(formatted_str)
 }
+
+pub async fn cmd_volume(driver:&WebDriver, val: Option<u32>) -> Result<String, String> {
+
+    if let Some(v) = val{
+        if v > 100 {
+            return Err("Value must be between 0 - 100".to_string());
+        }
+    }
+
+    let volume = volume(driver, &val).await?;
+
+    if val.is_some() {
+        Ok(format!("Volume set to: {}", volume))
+    } else {
+        Ok(format!("Volume: {}", volume))
+    }
+} 

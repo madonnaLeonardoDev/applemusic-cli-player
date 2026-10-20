@@ -429,3 +429,30 @@ let parsed_res: Vec<Track> = serde_json::from_value(res.json().clone())
 
  Ok(parsed_res)
 } 
+
+pub async fn volume(driver: &WebDriver, val: &Option<u32>) -> Result<i32, String> {
+    let script =
+        if val.is_none() {
+                r#"
+                return (async () => {
+                    return MusicKit.getInstance().volume;
+        })();
+                "#.to_string()
+        } else {
+            format!(
+                r#"
+                return (async () => {{
+                    MusicKit.getInstance().volume = {};
+                    return MusicKit.getInstance().volume;
+            }})();
+                "#, val.unwrap() as f64 / 100.0
+            )
+        };
+
+        let res = driver.execute(script, vec![]).await
+            .map_err(|e| e.to_string())?;
+
+        let parsed_res: f64 = serde_json::from_value(res.json().clone())
+            .map_err(|e| e.to_string())?;
+    Ok((parsed_res * 100.0).round() as i32)
+}
