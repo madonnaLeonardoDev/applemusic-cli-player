@@ -65,11 +65,11 @@ pub async fn cmd_search(driver:&WebDriver, query: String, search_type: &ItemType
 }
 
 //TESTED WORKS
-pub async fn cmd_play_by_id(driver:&WebDriver, id:String, item_type: ItemType, insta_play: bool) -> Result<String, String> {
+pub async fn cmd_play_by_id(driver:&WebDriver, id:String, item_type: ItemType, next: bool) -> Result<String, String> {
     let id = play_next(driver, &item_type, &id).await
     .map_err(|e| e.to_string())?;
 
-    if insta_play {
+    if !next {
         next_track(driver).await?;
         return Ok(format!("Playing Now: {}",id));
     }

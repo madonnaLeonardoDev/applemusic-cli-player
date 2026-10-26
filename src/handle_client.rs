@@ -1,98 +1,37 @@
 
 use thirtyfour::WebDriver;
 use tokio::net::UnixStream;
-use tokio::io::{AsyncBufReadExt,BufReader};
+use tokio::io::{AsyncReadExt, BufReader};
 use crate::apple_music_navigation::ItemType;
-use crate::daemon_controls::*;
-use clap::{Parser, Subcommand};
-use crate::paths::NAME;
+use crate::{daemon_controls::*};
+use crate::Commands;
 
-#[derive(Parser)]
-#[command(name = "daemon-cli", author, version, about = "Controls Apple Music daemon")]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    #[command(visible_alias = "s")]
-    Search {
-        #[arg(short = 't', long)]
-        stype: String,
-
-        #[arg(short, long)]
-        query: String,
-
-        #[arg(short, long)]
-        next: bool,
-
-        #[arg(short = 'p', long = "instaplay")]
-        insta_play: bool,
-
-        #[arg(short, long)]
-        library: bool
-    },
-    #[command(visible_alias = "pid")]
-    Playid {
-        #[arg(short = 't', long)]
-        stype: String,
-        #[arg(short, long)]
-        id: String,
-        #[arg(short, long)]
-        play: bool
-    },
-    #[command(visible_alias = "nx")]
-    Next,
-    #[command(visible_alias = "pv")]
-    Prev,
-    #[command(visible_alias = "pp")]
-    PlayPause,
-    #[command(visible_alias = "sh")]
-    Shuffle,
-    #[command(visible_alias = "c")]
-    Current,
-    #[command(visible_alias = "lspl")]
-    LsPlaylists,
-    #[command(visible_alias = "cq")]
-    ClearQueue,
-    #[command(visible_alias = "lq")]
-    LsQueue,
-    #[command(visible_alias = "v")]
-    Volume {
-        #[arg(
-            trailing_var_arg = true,
-            allow_hyphen_values = true,
-            num_args = 0..=1
-        )]
-        args: Option<u32>,
-    },
-
-}
 
 pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Result<String, String> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
+    let mut reader: BufReader<&mut UnixStream> = BufReader::new(stream);
 
-    let bytes_read = reader.read_line(&mut line).await
-    .map_err(|e| format!("Could not read stream: {}", e))?;
+    let mut len_buf = [0u8; 4];
 
-    if bytes_read <= 0 {
+    reader.read_exact(&mut len_buf).await
+        .map_err(|e| format!("Failed reading length prefix: {}", e))?;
+
+    let len = u32::from_le_bytes(len_buf) as usize;
+
+    if len <= 0 {
         return Err("Invalid empty command".to_string());
     }
 
-    let raw_args = line.trim().split_whitespace();
-    let args = std::iter::once(NAME).chain(raw_args);
+    let mut payload = vec![0u8; len];
+    reader.read_exact(&mut payload).await
+        .map_err(|e| format!("Failed reading payload: {}", e))?;
 
-    let cli = match Cli::try_parse_from(args) {
-        Ok(c) => c,
-        Err(e) => return Ok(e.to_string()), 
-    };
+    let command: Commands = wincode::deserialize(&payload)
+        .map_err(|e| format!("Failed Deserializing payload from bytes: {}", e))?;
     
 
 
 
-    let result: Result<String, String> =  match cli.command {
+    let result: Result<String, String> =  match command {
         Commands::Search { stype, query, next, insta_play, library } => {
             let search_type = match stype.to_lowercase().as_str() {
                 "song" | "s" => ItemType::Song,
@@ -111,7 +50,7 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
         Commands::LsPlaylists {  } => {
             Ok(cmd_list_playlists(driver).await?)
         },
-        Commands::Playid { stype, id, play } => {
+        Commands::Playid { stype, id, next } => {
             let search_type = match stype.to_lowercase().as_str() {
                 "song" | "s" => ItemType::Song,
                 "album" | "a" => ItemType::Album,
@@ -121,7 +60,7 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
                 }
             };
 
-            Ok(cmd_play_by_id(driver, id, search_type, play).await?)
+            Ok(cmd_play_by_id(driver, id, search_type, next).await?)
         },
         Commands::PlayPause => {
             Ok(cmd_play_pause(driver).await?)
@@ -143,13 +82,15 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
         },
         Commands::Volume { args } => {
             Ok(cmd_volume(driver, args).await?)
+        },
+        _=> {
+            Err("Invalid Command".to_string())
         }
     };
 
     if let Err(e) = result {
         return Ok(e.to_string());
     }
-
     Ok(result.unwrap())
-
-}
+ 
+} 
