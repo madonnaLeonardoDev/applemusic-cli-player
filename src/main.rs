@@ -118,6 +118,8 @@ pub enum Commands {
         )]
         args: Option<u32>,
     },
+
+    ///Graphical music deck (requires terminal with image rendering)
     #[command(visible_alias = "d")]
     Display,
 
