@@ -2,14 +2,26 @@ use std::vec;
 use crate::daemon_controls::format_time;
 use thirtyfour::prelude::*;
 use serde::{Serialize, Deserialize};
+use wincode_derive::{SchemaRead, SchemaWrite};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, SchemaRead, SchemaWrite)]
+pub struct Artwork {
+    pub height: u32,
+    pub width: u32,
+    pub url: String
+}
+
+
+#[derive(Debug, Serialize, Deserialize, SchemaRead, SchemaWrite)]
 pub struct Track {
     pub id: Option<String>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
-    pub duration_ms: Option<u32>
+    pub duration_ms: Option<u32>,
+    pub current_ms: Option<u32>,
+    pub has_lyrics: Option<bool>,
+    pub artwork: Option<Artwork>
 }
 
 impl Track {
@@ -352,32 +364,22 @@ pub async fn list_library_playlists(driver: &WebDriver) -> Result<Vec<Playlist>,
 pub async fn get_current_track(driver: &WebDriver) -> Result<Option<Track>, String> {
     let script = r#"
 return (() => {
-    let title = null;
-    let artist = null;
-    let album = null;
-    let id = null;
-    let duration = null;
-
-    if ('mediaSession' in navigator && navigator.mediaSession.metadata) {
-        title = navigator.mediaSession.metadata.title || title;
-        artist = navigator.mediaSession.metadata.artist || artist;
-        album = navigator.mediaSession.metadata.album || album;
+    let mediaItem = MusicKit.getInstance().nowPlayingItem;
+    
+    if (mediaItem) {
+        return {
+            id: mediaItem.id,
+            title: mediaItem.attributes.name,
+            artist: mediaItem.attributes.artistName,
+            album: mediaItem.attributes.albumName,
+            duration_ms: mediaItem.attributes.durationInMillis,
+            current_ms: mediaItem.attributes.durationInMillis - ((MusicKit.getInstance().currentPlaybackTimeRemaining) * 1000),
+            has_lyrics: mediaItem.attributes.hasLyrics,
+            artwork: mediaItem.attributes.artwork
+        };
     }
 
-    const songLink = document.querySelector('footer a[href*="/song/"], [data-testid="player-controls"] a[href*="/song/"]');
-    if (songLink) {
-        const match = songLink.href.match(/\/song\/([^\/?#]+)/);
-        if (match) {
-            id = match[1];
-        }
-    }
-
-    const audioEl = document.querySelector('audio');
-    if (audioEl && !isNaN(audioEl.duration)) {
-        duration = Math.round(audioEl.duration * 1000); // Converted to milliseconds
-    }
-
-    return { id, title, artist, album, duration };
+    return null;
 })();
     "#;
 
@@ -385,13 +387,13 @@ return (() => {
         .await
         .map_err(|e| e.to_string())?;
 
-    let track_obj: Track = serde_json::from_value(res.json().clone())
+    let track_obj: Option<Track> = serde_json::from_value(res.json().clone())
         .map_err(|e| e.to_string())?;
 
-    if track_obj.title.is_none() {
+    if track_obj.is_none() {
         return Ok(None)
     }
-    Ok(Some(track_obj))
+    Ok(track_obj)
 }
 
 

@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use wincode_derive::{SchemaRead, SchemaWrite};
 use crate::paths::{DAEMON_SOCKET_PATH};
 use crate::daemon::{kill_all, start_daemon};
+use crate::display_mode::run_player_loop;
 use wincode;
 mod daemon;
 mod handle_client;
@@ -12,6 +13,7 @@ mod paths;
 mod browser;
 mod apple_music_navigation;
 mod daemon_controls;
+mod display_mode;
 
 #[derive(Parser, SchemaWrite, SchemaRead)]
 struct Cli {
@@ -116,23 +118,15 @@ pub enum Commands {
         )]
         args: Option<u32>,
     },
+    #[command(visible_alias = "d")]
+    Display,
+
+    //INTERNAL COMMANDS
+    #[command(hide = true)]
+    GetPlayingTrackMeta
 }
 
-
-fn main() {
-    let cli = Cli::parse();
-
-    match cli.command {
-        Commands::Killd => {
-            println!("{}",kill_all().unwrap());
-        },
-        Commands::Startd { head } => {
-            if let Err(e) = start_daemon(head) {
-                        eprintln!("{}", e);
-                        return;
-            }
-        },
-        _=>{
+fn cmd_to_daemon(cli: Cli) {
             let cmd_as_bytes= wincode::serialize(&cli.command).unwrap();
             let payload_len = cmd_as_bytes.len() as u32;
             match UnixStream::connect(DAEMON_SOCKET_PATH.as_path()) {
@@ -159,11 +153,40 @@ fn main() {
 
                 },
                 Err(_) => {
-                    println!("Daemon is not running. Start it first using `startd (sd)`.")
+                    println!("Daemon is not running. Start it first using `startd (sd)`.");
                 }
             }
-
             
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Killd => {
+            println!("{}",kill_all().unwrap());
         },
-    }
+        Commands::Startd { head } => {
+            if let Err(e) = start_daemon(head) {
+                        eprintln!("{}", e);
+                        return;
+            }
+        },
+        Commands::Display => {
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => {
+                    if let Err(e) = rt.block_on(run_player_loop()) {
+                        eprintln!("Error in player loop: {}", e);
+                    }
+                }
+                Err(e) => eprintln!("Failed to create Tokio runtime: {}", e),
+            }
+        },
+        Commands::GetPlayingTrackMeta => {
+            println!("This is an internal daemon command and is not meant to be executed directly");
+        }
+        _=>{
+            cmd_to_daemon(cli);
+        },
+    };
 }

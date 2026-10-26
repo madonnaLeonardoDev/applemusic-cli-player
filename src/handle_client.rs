@@ -1,8 +1,8 @@
 
 use thirtyfour::WebDriver;
 use tokio::net::UnixStream;
-use tokio::io::{AsyncReadExt, BufReader};
-use crate::apple_music_navigation::ItemType;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use crate::apple_music_navigation::{ItemType, Track, get_current_track};
 use crate::{daemon_controls::*};
 use crate::Commands;
 
@@ -83,6 +83,23 @@ pub async fn handle_client(stream: &mut UnixStream, driver: &WebDriver) -> Resul
         Commands::Volume { args } => {
             Ok(cmd_volume(driver, args).await?)
         },
+        Commands::GetPlayingTrackMeta => {
+            let current_track: Option<Track> = get_current_track(driver).await?;
+
+            let track_as_bytes = wincode::serialize(&current_track)
+                .map_err(|e| e.to_string())?;
+
+            let len = ( track_as_bytes.len() as u32).to_le_bytes();
+
+            stream.write_all(&len).await
+                .map_err(|e| format!("Error writing length prefix to stream: {}", e))?;
+
+
+            stream.write_all(&track_as_bytes).await
+                .map_err(|e| format!("Error writing payload to stream: {}", e))?;
+
+            Ok("\n".to_string())
+        }
         _=> {
             Err("Invalid Command".to_string())
         }
