@@ -1,5 +1,6 @@
 use reqwest;
-use crate::Commands;
+use crate::lyrics::{LyricLine, request_lyric, get_current_lyrics};
+use crate::{Commands};
 use crate::apple_music_navigation::{Track};
 use crate::paths::DAEMON_SOCKET_PATH;
 use crossterm::{cursor, ExecutableCommand, terminal};
@@ -9,10 +10,11 @@ use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use tokio::time::{Duration, interval};
 
 
-pub async fn run_player_loop() -> Result<(), String> {
-let mut ticker = interval(Duration::from_secs(1));
+pub async fn run_player_loop(lyrics_enabled: bool) -> Result<(), String> {
+let mut ticker = interval(Duration::from_millis(100));
     let mut rendered_track_id: Option<String> = None;
 
+    let mut lyrics: Vec<LyricLine> = Vec::new();
     loop {
         let mut stream = match UnixStream::connect(DAEMON_SOCKET_PATH.as_path()).await {
             Ok(s) => s,
@@ -58,11 +60,53 @@ let mut ticker = interval(Duration::from_secs(1));
 
         if let Some(track) = current_track {
             if rendered_track_id.is_none() {
+                //SONG CHANGED
+                if lyrics_enabled {
+                    match request_lyric(&track).await {
+                        Ok(v) => lyrics = v,
+                        Err(_) => {
+                            lyrics.clear()
+                        }
+
+                    };
+
+                    let current_lyrics = get_current_lyrics(&lyrics, track.current_ms);
+
+                    render_lyrics(&current_lyrics).await
+                        .map_err(|e| e.to_string())?;
+                }
+                
+
                 render_heavy_redraw(&track).await.map_err(|e| e.to_string())?;
             } else if let Some(id) = &track.id {
+                //SAME SONG TIME ADVANCING
+                if lyrics_enabled {
+
+                    let current_lyrics = get_current_lyrics(&lyrics, track.current_ms);
+
+                    render_lyrics(&current_lyrics).await
+                        .map_err(|e| e.to_string())?;
+                }
+
                 if Some(id.clone()) == rendered_track_id { 
                     render_light_tick(&track).await.map_err(|e| e.to_string())?;
                 } else {
+                    //SONG CHANGED
+                    if lyrics_enabled {
+                    match request_lyric(&track).await {
+                        Ok(v) => lyrics = v,
+                        Err(_) => {
+                            lyrics.clear()
+                        }
+
+                    };
+
+                    let current_lyrics = get_current_lyrics(&lyrics, track.current_ms);
+
+                    render_lyrics(&current_lyrics).await
+                        .map_err(|e| e.to_string())?;
+                }
+
                     render_heavy_redraw(&track).await.map_err(|e| e.to_string())?;
                 }
             }
@@ -164,6 +208,30 @@ async fn render_light_tick(track: &Track) -> Result<(), Box<dyn std::error::Erro
     stdout.execute(cursor::MoveTo(text_x, text_y))?;
     
     print!("[{}{}]  {} / {}", filled, empty, cur_fmt, dur_fmt);
+
+    stdout.flush()?;
+    Ok(())
+}
+
+
+async fn render_lyrics(lyrics: &[&str; 3]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut stdout = stdout();
+    let text_x = 45;
+    let start_y = 14; // Positioned below the progress bar
+
+    let [prev, current, next] = lyrics;
+
+    // 1. Render Previous Line (Dimmed)
+    stdout.execute(cursor::MoveTo(text_x, start_y))?;
+    print!("\x1b[K\x1b[2m{}\x1b[0m", prev);
+
+    // 2. Render Current Line (Bold/Bright with a pointer)
+    stdout.execute(cursor::MoveTo(text_x, start_y + 2))?;
+    print!("\x1b[K\x1b[1m> {}\x1b[0m", current);
+
+    // 3. Render Next Line (Dimmed)
+    stdout.execute(cursor::MoveTo(text_x, start_y + 4))?;
+    print!("\x1b[K\x1b[2m{}\x1b[0m", next);
 
     stdout.flush()?;
     Ok(())

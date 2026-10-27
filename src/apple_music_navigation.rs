@@ -20,7 +20,6 @@ pub struct Track {
     pub album: Option<String>,
     pub duration_ms: Option<u32>,
     pub current_ms: Option<u32>,
-    pub has_lyrics: Option<bool>,
     pub artwork: Option<Artwork>
 }
 
@@ -374,7 +373,6 @@ return (() => {
             album: mediaItem.attributes.albumName,
             duration_ms: mediaItem.attributes.durationInMillis,
             current_ms: mediaItem.attributes.durationInMillis - ((MusicKit.getInstance().currentPlaybackTimeRemaining) * 1000),
-            has_lyrics: mediaItem.attributes.hasLyrics,
             artwork: mediaItem.attributes.artwork
         };
     }

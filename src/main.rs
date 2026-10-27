@@ -14,6 +14,7 @@ mod browser;
 mod apple_music_navigation;
 mod daemon_controls;
 mod display_mode;
+mod lyrics;
 
 #[derive(Parser, SchemaWrite, SchemaRead)]
 struct Cli {
@@ -121,11 +122,19 @@ pub enum Commands {
 
     ///Graphical music deck (requires terminal with image rendering)
     #[command(visible_alias = "d")]
-    Display,
+    Display {
+        ///Show Scrolling lyrics if available
+        #[arg(short, long)]
+        lyrics: bool
+    },
 
     //INTERNAL COMMANDS
     #[command(hide = true)]
-    GetPlayingTrackMeta
+    GetPlayingTrackMeta,
+
+    #[command(hide = true)]
+    GetLyrics
+
 }
 
 fn cmd_to_daemon(cli: Cli) {
@@ -174,10 +183,10 @@ fn main() {
                         return;
             }
         },
-        Commands::Display => {
+        Commands::Display{lyrics}=> {
             match tokio::runtime::Runtime::new() {
                 Ok(rt) => {
-                    if let Err(e) = rt.block_on(run_player_loop()) {
+                    if let Err(e) = rt.block_on(run_player_loop(lyrics)) {
                         eprintln!("Error in player loop: {}", e);
                     }
                 }
