@@ -1,4 +1,5 @@
 use reqwest;
+use std::os::unix::io::AsRawFd;
 use crate::lyrics::{LyricLine, request_lyric, get_current_lyrics};
 use crate::{Commands};
 use crate::apple_music_navigation::{Track};
@@ -9,12 +10,45 @@ use tokio::net::UnixStream;
 use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use tokio::time::{Duration, interval};
 
+async fn request_track_meta(stream: &mut UnixStream) -> Result<Option<Track>, String> {
+        let request = wincode::serialize(&Commands::GetPlayingTrackMeta)
+            .map_err(|e| format!("Failed serializing internal Command: {}", e))?;
+        let len_prefix = (request.len() as u32).to_le_bytes();
+
+        if let Err(e) = stream.write_all(&len_prefix).await {
+            return Err(format!("Could not write to stream length prefix: {}", e))
+        }
+        if let Err(e) = stream.write_all(&request).await {
+
+            return Err(format!("Could not write to stream payload: {}", e))
+        }
+
+        let mut len_buf = [0u8; 4];
+        if let Err(e) = stream.read_exact(&mut len_buf).await {
+            return Err(format!("Error reading len buf: {}", e))
+        }
+        let len = u32::from_le_bytes(len_buf) as usize;
+
+        let mut buf = vec![0u8; len];
+        if let Err(e) = stream.read_exact(&mut buf).await {
+            return Err(format!("Error reading payload buf: {}", e))
+        }
+
+        let current_track: Option<Track> = wincode::deserialize(&buf)
+            .map_err(|e| e.to_string())?;
+
+        Ok(current_track)
+}
+
+
+
 
 pub async fn run_player_loop(lyrics_enabled: bool) -> Result<(), String> {
 let mut ticker = interval(Duration::from_millis(100));
     let mut rendered_track_id: Option<String> = None;
 
     let mut lyrics: Vec<LyricLine> = Vec::new();
+
     loop {
         let mut stream = match UnixStream::connect(DAEMON_SOCKET_PATH.as_path()).await {
             Ok(s) => s,
@@ -25,38 +59,10 @@ let mut ticker = interval(Duration::from_millis(100));
             }
         };
 
-        let request = wincode::serialize(&Commands::GetPlayingTrackMeta)
-            .map_err(|e| format!("Failed serializing internal Command: {}", e))?;
-        let len_prefix = (request.len() as u32).to_le_bytes();
-
-        if let Err(e) = stream.write_all(&len_prefix).await {
-            eprintln!("Could not write to stream length prefix: {}", e);
-            ticker.tick().await;
-            continue;
-        }
-        if let Err(e) = stream.write_all(&request).await {
-            eprintln!("Could not write to stream payload: {}", e);
-            ticker.tick().await;
-            continue;
-        }
-
-        let mut len_buf = [0u8; 4];
-        if let Err(e) = stream.read_exact(&mut len_buf).await {
-            eprintln!("Error reading len buf: {}", e);
-            ticker.tick().await;
-            continue;
-        }
-        let len = u32::from_le_bytes(len_buf) as usize;
-
-        let mut buf = vec![0u8; len];
-        if let Err(e) = stream.read_exact(&mut buf).await {
-            eprintln!("Error reading payload buf: {}", e);
-            ticker.tick().await;
-            continue;
-        }
-
-        let current_track: Option<Track> = wincode::deserialize(&buf)
-            .map_err(|e| e.to_string())?;
+        let current_track = match request_track_meta(&mut stream).await {
+            Ok(t) => t,
+            Err(_) => continue
+        };
 
         if let Some(track) = current_track {
             if rendered_track_id.is_none() {
@@ -135,6 +141,10 @@ async fn fetch_artwork(template_url: &str, width: u32, height: u32) -> Result<Ve
 }
 
 async fn render_heavy_redraw(track: &Track) -> Result<(), Box<dyn std::error::Error>> {
+    unsafe {
+        libc::tcflush(std::io::stdin().as_raw_fd(), libc::TCIFLUSH);
+    }
+    
     let mut stdout = stdout();
 
     stdout.execute(terminal::Clear(terminal::ClearType::All))?;
