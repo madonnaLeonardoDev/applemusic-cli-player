@@ -48,3 +48,71 @@ A lightweight, high-performance Rust command-line client and daemon for Apple Mu
 Download the precompiled binary directly from the release folder inside the repository:
 ```bash
 cp target/release/applemusic-cli /usr/local/bin/
+
+```
+---
+
+### Option 2: Build from Source
+
+Ensure you have the Rust toolchain installed, then run:
+
+```
+cargo build --release
+
+```
+### Getting Detailed Help
+
+To view all available subcommands and global options:
+
+```
+applemusic-cli --help
+# or
+applemusic-cli -h
+
+
+```
+
+To see specific flags, options, and syntax for any subcommand (e.g., `startd` or `search`):
+
+```
+applemusic-cli startd --help
+applemusic-cli search --help
+
+
+```
+
+## 🔧 Troubleshooting & Setup Notes
+
+### 1. DRM Constraints on New Firefox Instances
+
+If Firefox fails to play tracks due to missing DRM plugins in a clean headless instance:
+
+1. Open your main Firefox browser and ensure Widevine/DRM content playback is enabled and working on Apple Music.
+
+2. Copy your existing Firefox profile containing the DRM configuration into the app's designated profile directory:
+
+   ```
+   cp -r ~/.mozilla/firefox/<your-profile-folder>/* ~/.config/applemusic-cli_daemon/browser-profile/
+   
+   
+   ```
+
+### 2. Autoplay Blocked by Firefox
+
+If Firefox blocks automated playback commands upon startup:
+
+1. Start the daemon in headed mode:
+
+   ```
+   applemusic-cli startd -H
+   
+   
+   ```
+
+2. In the opened Firefox window, navigate to Apple Music, open site permissions (click the lock icon in the address bar), and set **Autoplay** to **"Allow Audio and Video"**.
+
+3. Close the window and resume running the daemon headlessly.
+
+## 🛠️ Maintenance & Future Updates
+
+This project is actively maintained. Bug fixes, performance tweaks, and feature improvements will be pushed regularly. Feel free to open issues or submit pull requests on the GitHub repository!
